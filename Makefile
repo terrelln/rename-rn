@@ -16,3 +16,7 @@ rn: Rename.cpp.o
 Rename.cpp.o: Rename.cpp
 	clang++ `$(BUILD)/bin/llvm-config --cxxflags` $(INCS) -c -o Rename.cpp.o Rename.cpp
 	#!$(CXX) $(CXXFLAGS) -c -o Rename.cpp.o Rename.cpp $(INCS)
+
+.PHONY=clean
+clean:
+	rm *.o rn
