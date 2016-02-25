@@ -14,13 +14,13 @@ INCS:=-I$(LLVM)/tools/clang/include -I$(BUILD)/tools/clang/include
 # CXX:=$(HOME)/repos/llvm/build/bin/clang++
 CXX:=clang++
 
-CXXFLAGS:=-std=c++11
+CXXFLAGS:=-std=c++11 -g
 
 rn: Rename.cpp.o
 	$(CXX) `$(BUILD)/bin/llvm-config --ldflags` $(CXXFLAGS) $(DEFINES) -o rn Rename.cpp.o `$(BUILD)/bin/llvm-config --system-libs --libs` $(LIBPATHS) $(LIBS) $(INCS)
 
 Rename.cpp.o: Rename.cpp
-	clang++ `$(BUILD)/bin/llvm-config --cxxflags` $(INCS) -c -o Rename.cpp.o Rename.cpp
+	$(CXX) $(CXXFLAGS) `$(BUILD)/bin/llvm-config --cxxflags` $(INCS) -c -o Rename.cpp.o Rename.cpp
 	#!$(CXX) $(CXXFLAGS) -c -o Rename.cpp.o Rename.cpp $(INCS)
 
 .PHONY=clean

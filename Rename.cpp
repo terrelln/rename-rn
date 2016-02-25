@@ -2,9 +2,11 @@
 #include <clang/ASTMatchers/ASTMatchers.h>
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/Basic/SourceManager.h>
+#include <clang/Index/USRGeneration.h>
 #include <clang/Tooling/CommonOptionsParser.h>
 #include <clang/Tooling/Refactoring.h>
 #include <llvm/ADT/Optional.h>
+#include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/raw_ostream.h>
 
@@ -15,48 +17,61 @@ using namespace clang::tooling;
 
 using llvm::errs;
 using llvm::outs;
-using llvm::Optional;
 using llvm::StringRef;
 
 namespace rn {
 
-bool isSameDecl(const Decl &First, const Decl &Second) {
-  return First.getCanonicalDecl() == Second.getCanonicalDecl();
+std::string getUSRForDecl(const Decl &Decl) {
+  llvm::SmallVector<char, 128> Buf;
+
+  if (index::generateUSRForDecl(&Decl, Buf))
+    return std::string{};
+
+  return std::string(Buf.data(), Buf.size());
 }
 
-AST_MATCHER_P(Decl, singularNamedDeclNode, const NamedDecl *, Declaration) {
-  if (Declaration == nullptr)
-    return false;
-  return isSameDecl(Node, *Declaration);
+AST_MATCHER_P(Decl, sameUSR, StringRef, USR) {
+  return getUSRForDecl(Node) == USR;
 }
 
-StatementMatcher declRefMatcher(const NamedDecl &Decl) {
-  return declRefExpr(hasDeclaration(singularNamedDeclNode(&Decl)));
+StatementMatcher declRefMatcher(StringRef USR) {
+  return declRefExpr(hasDeclaration(namedDecl(sameUSR(USR)))).bind("expr");
+}
+
+DeclarationMatcher namedDeclMatcher(StringRef USR) {
+  return namedDecl(sameUSR(USR)).bind("decl");
 }
 
 class DeclRefHandler : public MatchFinder::MatchCallback {
 public:
-  DeclRefHandler(Replacements *Replace, StringRef NewSpelling)
-      : Replace(Replace), NewSpelling(NewSpelling) {}
+  DeclRefHandler(Replacements *Replace, StringRef Spelling,
+                 StringRef NewSpelling)
+      : Replace(Replace), Spelling(Spelling), NewSpelling(NewSpelling) {}
 
   virtual void run(const MatchFinder::MatchResult &Result) {
+    errs() << "sd\n";
     if (const DeclRefExpr *Ref = Result.Nodes.getNodeAs<DeclRefExpr>("expr")) {
-      Replacement Rep(*(Result.SourceManager), Ref, NewSpelling);
+      Replacement Rep(*(Result.SourceManager), Ref->getLocation(),
+                      Spelling.size(), NewSpelling);
+      Replace->insert(Rep);
+    } else if (const NamedDecl *Ref =
+                   Result.Nodes.getNodeAs<NamedDecl>("decl")) {
+      Replacement Rep(*(Result.SourceManager), Ref->getLocation(),
+                      Spelling.size(), NewSpelling);
       Replace->insert(Rep);
     }
   }
 
 private:
   Replacements *Replace;
+  StringRef Spelling;
   StringRef NewSpelling;
 };
 
 class SourceLocationHandler : public MatchFinder::MatchCallback {
 public:
-  SourceLocationHandler(Replacements *Replace, StringRef NewSpelling,
-                        StringRef File, unsigned Offset)
-      : Replace(Replace), NewSpelling(NewSpelling), File(File), Offset(Offset),
-        Decl(nullptr) {}
+  SourceLocationHandler(StringRef File, unsigned Offset)
+      : File(File), Offset(Offset), Decl(nullptr) {}
 
   virtual void run(const MatchFinder::MatchResult &Result) {
     // FIXME: This is an ugly way to get the source location.
@@ -64,7 +79,7 @@ public:
     if (SourceMgr == nullptr)
       return;
     if (!Loc.hasValue()) {
-      // Fixme, use File
+      // FIXME: use File
       Loc = SourceMgr->getLocForStartOfFile(SourceMgr->getMainFileID())
                 .getLocWithOffset(Offset);
     }
@@ -81,7 +96,7 @@ public:
     }
   }
 
-  const NamedDecl *getNamedDecl() const { return Decl; }
+  const NamedDecl *getDecl() const { return Decl; }
 
 private:
   SourceLocation lenToLoc(const SourceLocation &Start, unsigned Length) {
@@ -96,9 +111,8 @@ private:
     if (!Start.isValid() || !End.isValid() || Start.isMacroID() ||
         End.isMacroID() || !isLocWithin(SourceMgr, Start, End))
       return;
-    Replacement Rep(SourceMgr, D, NewSpelling);
-    Replace->insert(Rep);
     Decl = D;
+    errs() << "Found symbol at offset: " << D->getNameAsString() << "\n";
   }
 
   bool isLocWithin(const SourceManager &SourceMgr, const SourceLocation &Start,
@@ -108,11 +122,9 @@ private:
             SourceMgr.isBeforeInTranslationUnit(*Loc, End));
   }
 
-  Replacements *Replace;
-  StringRef NewSpelling;
   StringRef File;
   unsigned Offset;
-  Optional<SourceLocation> Loc;
+  llvm::Optional<SourceLocation> Loc;
   const NamedDecl *Decl;
 };
 }
@@ -162,10 +174,10 @@ int main(int argc, const char **argv) {
 
   tooling::RefactoringTool Tool(OP.getCompilations(), Files);
 
-  const NamedDecl *ReferencedDecl = nullptr;
+  std::string USR;
+  std::string Spelling;
   {
-    SourceLocationHandler HandlerForSourceLoc(
-        &Tool.getReplacements(), NewSpelling, Files.front(), Offset);
+    SourceLocationHandler HandlerForSourceLoc(Files.front(), Offset);
     MatchFinder Finder;
     Finder.addMatcher(namedDecl().bind("decl"), &HandlerForSourceLoc);
     Finder.addMatcher(declRefExpr().bind("expr"), &HandlerForSourceLoc);
@@ -174,19 +186,23 @@ int main(int argc, const char **argv) {
              << "\" at offset: " << Offset << ".\n";
       exit(1);
     }
-    ReferencedDecl = HandlerForSourceLoc.getNamedDecl();
-  }
-  if (ReferencedDecl == nullptr) {
-    errs() << "Failed to find symbol in file: \"" << Files.front()
-           << "\" at offset: " << Offset << ".\n";
-    exit(1);
+    const auto ReferencedDecl = HandlerForSourceLoc.getDecl();
+    if (ReferencedDecl == nullptr) {
+      errs() << "Failed to find symbol in file: \"" << Files.front()
+             << "\" at offset: " << Offset << ".\n";
+      exit(1);
+    }
+    USR = getUSRForDecl(*ReferencedDecl);
+    Spelling = ReferencedDecl->getNameAsString();
   }
 
   // Find all references and rename them
   {
-    DeclRefHandler HandleDeclRef(&Tool.getReplacements(), NewSpelling);
+    DeclRefHandler HandleDeclRef(&Tool.getReplacements(), Spelling,
+                                 NewSpelling);
     MatchFinder Finder;
-    Finder.addMatcher(declRefMatcher(*ReferencedDecl), &HandleDeclRef);
+    Finder.addMatcher(declRefMatcher(USR), &HandleDeclRef);
+    Finder.addMatcher(namedDeclMatcher(USR), &HandleDeclRef);
     if (Tool.run(newFrontendActionFactory(&Finder).get())) {
       errs() << "Failed to rename symbol in file: \"" << Files.front()
              << "\" at offset: " << Offset << ".\n";
