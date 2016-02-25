@@ -72,16 +72,24 @@ public:
       return;
     }
     if (const DeclRefExpr *Ref = Result.Nodes.getNodeAs<DeclRefExpr>("expr")) {
-      setResult(*SourceMgr, Ref->getFoundDecl(), Ref->getLocStart(),
-                Ref->getLocEnd());
+      if (const NamedDecl *D = Ref->getFoundDecl())
+        setResult(*SourceMgr, D, Ref->getLocation(),
+                  lenToLoc(Ref->getLocation(), D->getNameAsString().length()));
     } else if (const NamedDecl *D = Result.Nodes.getNodeAs<NamedDecl>("decl")) {
-      setResult(*SourceMgr, D, D->getLocStart(), D->getLocEnd());
+      setResult(*SourceMgr, D, D->getLocation(),
+                lenToLoc(D->getLocation(), D->getNameAsString().length()));
     }
   }
 
   const NamedDecl *getNamedDecl() const { return Decl; }
 
 private:
+  SourceLocation lenToLoc(const SourceLocation &Start, unsigned Length) {
+    if (Length == 0)
+      return SourceLocation{};
+    return Start.getLocWithOffset(Length - 1);
+  }
+
   void setResult(const SourceManager &SourceMgr, const NamedDecl *D,
                  const SourceLocation &Start, const SourceLocation &End) {
     // If the location is in an expanded macro, we do not want to rename it.
