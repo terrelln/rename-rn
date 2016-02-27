@@ -5,6 +5,8 @@
 #include <clang/Index/USRGeneration.h>
 #include <clang/Tooling/CommonOptionsParser.h>
 #include <clang/Tooling/Refactoring.h>
+
+#include <llvm/ADT/IntrusiveRefCntPtr.h>
 #include <llvm/ADT/Optional.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/StringRef.h>
@@ -21,7 +23,7 @@ using llvm::StringRef;
 
 namespace rn {
 
-std::string getUSRForDecl(const Decl &Decl) {
+std::string getUSRForDecl(const NamedDecl &Decl) {
   llvm::SmallVector<char, 128> Buf;
 
   if (index::generateUSRForDecl(&Decl, Buf))
@@ -30,36 +32,97 @@ std::string getUSRForDecl(const Decl &Decl) {
   return std::string(Buf.data(), Buf.size());
 }
 
-AST_MATCHER_P(Decl, sameUSR, StringRef, USR) {
+AST_MATCHER_P(NamedDecl, sameUSR, StringRef, USR) {
   return getUSRForDecl(Node) == USR;
 }
 
+#define RN_ANNOTATED_NODE(NodeName)                                            \
+  struct NodeName##Node {                                                      \
+    using NodeType = NodeName;                                                 \
+    static constexpr const char *ID() { return #NodeName; }                    \
+  }
+
+struct NamedDeclNode {
+  using NodeType = clang::NamedDecl;
+  using MatcherType = DeclarationMatcher;
+  static constexpr const char *ID() { return "NamedDecl"; }
+
+  static const NamedDecl *getNamedDecl(const NodeType *Node) { return Node; }
+
+  static const MatcherType matchNode() { return namedDecl().bind(ID()); }
+
+  static const DeclarationMatcher
+  matchNamedDecl(const Matcher<NamedDecl> &InnerMatcher) {
+    return namedDecl(InnerMatcher).bind(ID());
+  }
+};
+
+struct DeclRefExprNode {
+  using NodeType = clang::DeclRefExpr;
+  using MatcherType = StatementMatcher;
+  static constexpr const char *ID() { return "DeclRefExpr"; }
+
+  static const NamedDecl *getNamedDecl(const NodeType *Node) {
+    return Node->getFoundDecl();
+  }
+
+  static const MatcherType matchNode() { return declRefExpr().bind(ID()); }
+
+  static const MatcherType
+  matchNamedDecl(const Matcher<NamedDecl> &InnerMatcher) {
+    return declRefExpr(hasDeclaration(namedDecl(InnerMatcher))).bind(ID());
+  }
+};
+
+#undef RN_ANNOTATED_NODE
+
 StatementMatcher declRefMatcher(StringRef USR) {
-  return declRefExpr(hasDeclaration(namedDecl(sameUSR(USR)))).bind("expr");
+  return declRefExpr(hasDeclaration(namedDecl(sameUSR(USR))))
+      .bind(DeclRefExprNode::ID());
 }
 
 DeclarationMatcher namedDeclMatcher(StringRef USR) {
-  return namedDecl(sameUSR(USR)).bind("decl");
+  return namedDecl(sameUSR(USR)).bind(NamedDeclNode::ID());
 }
 
-class DeclRefHandler : public MatchFinder::MatchCallback {
+namespace internal {
+
+template <typename...> struct RunImpl;
+
+template <> struct RunImpl<> {
+  static void run(Replacements *Replace, StringRef Spelling,
+                  StringRef NewSpelling,
+                  const MatchFinder::MatchResult &Result) {}
+};
+
+template <typename AnnotatedNode, typename... Rest>
+struct RunImpl<AnnotatedNode, Rest...> {
+  static void run(Replacements *Replace, StringRef Spelling,
+                  StringRef NewSpelling,
+                  const MatchFinder::MatchResult &Result) {
+    errs() << "Trying id: " << AnnotatedNode::ID() << "\n";
+    if (const auto Node =
+            Result.Nodes.getNodeAs<typename AnnotatedNode::NodeType>(
+                AnnotatedNode::ID())) {
+      errs() << "Found match with id: " << AnnotatedNode::ID() << "\n";
+      Replace->insert(Replacement(*(Result.SourceManager), Node->getLocation(),
+                                  Spelling.size(), NewSpelling));
+    } else {
+      RunImpl<Rest...>::run(Replace, Spelling, NewSpelling, Result);
+    }
+  }
+};
+
+template <typename... AnnotatedNodes>
+class RenameHandlerImpl : public MatchFinder::MatchCallback {
 public:
-  DeclRefHandler(Replacements *Replace, StringRef Spelling,
-                 StringRef NewSpelling)
+  RenameHandlerImpl(Replacements *Replace, StringRef Spelling,
+                    StringRef NewSpelling)
       : Replace(Replace), Spelling(Spelling), NewSpelling(NewSpelling) {}
 
-  virtual void run(const MatchFinder::MatchResult &Result) {
-    errs() << "sd\n";
-    if (const DeclRefExpr *Ref = Result.Nodes.getNodeAs<DeclRefExpr>("expr")) {
-      Replacement Rep(*(Result.SourceManager), Ref->getLocation(),
-                      Spelling.size(), NewSpelling);
-      Replace->insert(Rep);
-    } else if (const NamedDecl *Ref =
-                   Result.Nodes.getNodeAs<NamedDecl>("decl")) {
-      Replacement Rep(*(Result.SourceManager), Ref->getLocation(),
-                      Spelling.size(), NewSpelling);
-      Replace->insert(Rep);
-    }
+  void run(const MatchFinder::MatchResult &Result) override {
+    errs() << "Calling impl\n";
+    RunImpl<AnnotatedNodes...>::run(Replace, Spelling, NewSpelling, Result);
   }
 
 private:
@@ -67,36 +130,36 @@ private:
   StringRef Spelling;
   StringRef NewSpelling;
 };
+}
+
+using RenameHandler =
+    internal::RenameHandlerImpl<DeclRefExprNode, NamedDeclNode>;
 
 class SourceLocationHandler : public MatchFinder::MatchCallback {
 public:
-  SourceLocationHandler(StringRef File, unsigned Offset)
-      : File(File), Offset(Offset), Decl(nullptr) {}
+  SourceLocationHandler(StringRef File, unsigned Line, unsigned Column)
+      : File(File), Line(Line), Column(Column) {}
 
   virtual void run(const MatchFinder::MatchResult &Result) {
-    // FIXME: This is an ugly way to get the source location.
     const auto SourceMgr = Result.SourceManager;
     if (SourceMgr == nullptr)
       return;
-    if (!Loc.hasValue()) {
-      // FIXME: use File
-      Loc = SourceMgr->getLocForStartOfFile(SourceMgr->getMainFileID())
-                .getLocWithOffset(Offset);
-    }
-    if (!Loc->isValid()) {
-      return;
-    }
-    if (const DeclRefExpr *Ref = Result.Nodes.getNodeAs<DeclRefExpr>("expr")) {
-      if (const NamedDecl *D = Ref->getFoundDecl())
-        setResult(*SourceMgr, D, Ref->getLocation(),
-                  lenToLoc(Ref->getLocation(), D->getNameAsString().length()));
-    } else if (const NamedDecl *D = Result.Nodes.getNodeAs<NamedDecl>("decl")) {
-      setResult(*SourceMgr, D, D->getLocation(),
-                lenToLoc(D->getLocation(), D->getNameAsString().length()));
+    if (const DeclRefExpr *Ref =
+            Result.Nodes.getNodeAs<DeclRefExpr>(DeclRefExprNode::ID())) {
+      if (const NamedDecl *Decl = Ref->getFoundDecl())
+        setResult(
+            *SourceMgr, Decl, Ref->getLocation(),
+            lenToLoc(Ref->getLocation(), Decl->getNameAsString().length()));
+    } else if (const NamedDecl *Decl =
+                   Result.Nodes.getNodeAs<NamedDecl>(NamedDeclNode::ID())) {
+      setResult(
+          *SourceMgr, Decl, Decl->getLocation(),
+          lenToLoc(Decl->getLocation(), Decl->getNameAsString().length()));
     }
   }
 
-  const NamedDecl *getDecl() const { return Decl; }
+  StringRef getUSR() const { return USR; }
+  StringRef getSpelling() const { return Spelling; }
 
 private:
   SourceLocation lenToLoc(const SourceLocation &Start, unsigned Length) {
@@ -105,27 +168,37 @@ private:
     return Start.getLocWithOffset(Length - 1);
   }
 
-  void setResult(const SourceManager &SourceMgr, const NamedDecl *D,
+  void setResult(const SourceManager &SourceMgr, const NamedDecl *Decl,
                  const SourceLocation &Start, const SourceLocation &End) {
     // If the location is in an expanded macro, we do not want to rename it.
     if (!Start.isValid() || !End.isValid() || Start.isMacroID() ||
         End.isMacroID() || !isLocWithin(SourceMgr, Start, End))
       return;
-    Decl = D;
-    errs() << "Found symbol at offset: " << D->getNameAsString() << "\n";
+    USR = getUSRForDecl(*Decl);
+    Spelling = Decl->getNameAsString();
+    errs() << "Found symbol at offset: " << Spelling << "\n";
   }
 
   bool isLocWithin(const SourceManager &SourceMgr, const SourceLocation &Start,
                    const SourceLocation &End) {
+    if (!Loc.hasValue()) {
+      auto &FileMgr = SourceMgr.getFileManager();
+      Loc = SourceMgr.translateFileLineCol(FileMgr.getFile(File), Line, Column);
+    }
+    if (!Loc->isValid()) {
+      return false;
+    }
     return *Loc == Start || *Loc == End ||
            (SourceMgr.isBeforeInTranslationUnit(Start, *Loc) &&
             SourceMgr.isBeforeInTranslationUnit(*Loc, End));
   }
 
   StringRef File;
-  unsigned Offset;
+  unsigned Line;
+  unsigned Column;
   llvm::Optional<SourceLocation> Loc;
-  const NamedDecl *Decl;
+  std::string USR;
+  std::string Spelling;
 };
 }
 
@@ -138,9 +211,11 @@ static llvm::cl::opt<std::string>
                 llvm::cl::cat(RenameCategory));
 
 static llvm::cl::opt<unsigned>
-    Offset("offset",
-           llvm::cl::desc(
-               "Locates the symbol by offset as opposed to <line>:<column>."),
+    Line("line", llvm::cl::desc("The line the symbol is located on."),
+         llvm::cl::cat(RenameCategory));
+
+static llvm::cl::opt<unsigned>
+    Column("column", llvm::cl::desc("The column the symbol is located in."),
            llvm::cl::cat(RenameCategory));
 
 const std::string CLANG_RENAME_VERSION = "0.0.1";
@@ -177,35 +252,36 @@ int main(int argc, const char **argv) {
   std::string USR;
   std::string Spelling;
   {
-    SourceLocationHandler HandlerForSourceLoc(Files.front(), Offset);
+    SourceLocationHandler HandlerForSourceLoc(Files.front(), Line, Column);
     MatchFinder Finder;
-    Finder.addMatcher(namedDecl().bind("decl"), &HandlerForSourceLoc);
-    Finder.addMatcher(declRefExpr().bind("expr"), &HandlerForSourceLoc);
+    Finder.addMatcher(namedDecl().bind(NamedDeclNode::ID()),
+                      &HandlerForSourceLoc);
+    Finder.addMatcher(declRefExpr().bind(DeclRefExprNode::ID()),
+                      &HandlerForSourceLoc);
     if (Tool.run(newFrontendActionFactory(&Finder).get())) {
-      errs() << "Failed to find symbol in file: \"" << Files.front()
-             << "\" at offset: " << Offset << ".\n";
+      errs() << "Failed to find symbol at location: " << Files.front() << ":"
+             << Line << ":" << Column << ".\n";
       exit(1);
     }
-    const auto ReferencedDecl = HandlerForSourceLoc.getDecl();
-    if (ReferencedDecl == nullptr) {
-      errs() << "Failed to find symbol in file: \"" << Files.front()
-             << "\" at offset: " << Offset << ".\n";
-      exit(1);
-    }
-    USR = getUSRForDecl(*ReferencedDecl);
-    Spelling = ReferencedDecl->getNameAsString();
+    USR = HandlerForSourceLoc.getUSR();
+    Spelling = HandlerForSourceLoc.getSpelling();
+    errs() << "USR: " << USR << "\n";
+    errs() << "Spelling: " << Spelling << "\n";
+  }
+  if (USR.empty()) {
+    errs() << "Unable to determine USR.";
+    exit(1);
   }
 
   // Find all references and rename them
   {
-    DeclRefHandler HandleDeclRef(&Tool.getReplacements(), Spelling,
-                                 NewSpelling);
+    RenameHandler HandleRename(&Tool.getReplacements(), Spelling, NewSpelling);
     MatchFinder Finder;
-    Finder.addMatcher(declRefMatcher(USR), &HandleDeclRef);
-    Finder.addMatcher(namedDeclMatcher(USR), &HandleDeclRef);
+    Finder.addMatcher(declRefMatcher(USR), &HandleRename);
+    Finder.addMatcher(namedDeclMatcher(USR), &HandleRename);
     if (Tool.run(newFrontendActionFactory(&Finder).get())) {
-      errs() << "Failed to rename symbol in file: \"" << Files.front()
-             << "\" at offset: " << Offset << ".\n";
+      errs() << "Failed to rename symbol at location: " << Files.front() << ":"
+             << Line << ":" << Column << ".\n";
     }
   }
   llvm::outs() << "Replacements collected by the tool:\n";
