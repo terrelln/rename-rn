@@ -36,12 +36,6 @@ AST_MATCHER_P(NamedDecl, sameUSR, StringRef, USR) {
   return getUSRForDecl(Node) == USR;
 }
 
-#define RN_ANNOTATED_NODE(NodeName)                                            \
-  struct NodeName##Node {                                                      \
-    using NodeType = NodeName;                                                 \
-    static constexpr const char *ID() { return #NodeName; }                    \
-  }
-
 struct NamedDeclNode {
   using NodeType = clang::NamedDecl;
   using MatcherType = DeclarationMatcher;
@@ -74,8 +68,7 @@ struct DeclRefExprNode {
   }
 };
 
-#undef RN_ANNOTATED_NODE
-
+/*
 StatementMatcher declRefMatcher(StringRef USR) {
   return declRefExpr(hasDeclaration(namedDecl(sameUSR(USR))))
       .bind(DeclRefExprNode::ID());
@@ -134,71 +127,95 @@ private:
 
 using RenameHandler =
     internal::RenameHandlerImpl<DeclRefExprNode, NamedDeclNode>;
+*/
 
+struct SymbolData {
+  SymbolData(std::string File, unsigned Line, unsigned Column,
+             std::string NewSpelling)
+      : File(std::move(File)), Line(Line), Column(Column),
+        NewSpelling(std::move(NewSpelling)) {}
+
+  std::string File;
+  unsigned Line;
+  unsigned Column;
+  std::string NewSpelling;
+
+  Optional<SourceLocation> Loc;
+  std::string USR;
+  std::string Spelling;
+};
+
+template <typename AnnotatedNode>
+class RenameHandler : public MatchFinder::MatchCallback {
+public:
+  RenameHandler(Replacements *Replace, const SymbolData *Data)
+      : Replace(Replace), Data(Data) {}
+
+  void run(const MatchFinder::MatchResult &Result) override {
+    if (const auto Node =
+            Result.Nodes.getNodeAs<typename AnnotatedNode::NodeType>(
+                AnnotatedNode::ID())) {
+      Replace->insert(Replacement(*(Result.SourceManager), Node->getLocation(),
+                                  Data->Spelling.size(), Data->NewSpelling));
+    }
+  }
+
+private:
+  Replacements *Replace;
+  const SymbolData *Data;
+};
+
+template <typename AnnotatedNode>
 class SourceLocationHandler : public MatchFinder::MatchCallback {
 public:
-  SourceLocationHandler(StringRef File, unsigned Line, unsigned Column)
-      : File(File), Line(Line), Column(Column) {}
+  SourceLocationHandler(SymbolData *Data) : Data(Data) {}
 
   virtual void run(const MatchFinder::MatchResult &Result) {
     const auto SourceMgr = Result.SourceManager;
     if (SourceMgr == nullptr)
       return;
-    if (const DeclRefExpr *Ref =
-            Result.Nodes.getNodeAs<DeclRefExpr>(DeclRefExprNode::ID())) {
-      if (const NamedDecl *Decl = Ref->getFoundDecl())
-        setResult(
-            *SourceMgr, Decl, Ref->getLocation(),
-            lenToLoc(Ref->getLocation(), Decl->getNameAsString().length()));
-    } else if (const NamedDecl *Decl =
-                   Result.Nodes.getNodeAs<NamedDecl>(NamedDeclNode::ID())) {
-      setResult(
-          *SourceMgr, Decl, Decl->getLocation(),
-          lenToLoc(Decl->getLocation(), Decl->getNameAsString().length()));
-    }
+    const auto Node = Result.Nodes.getNodeAs<typename AnnotatedNode::NodeType>(
+        AnnotatedNode::ID());
+    if (Node == nullptr)
+      return;
+    const NamedDecl *Decl = AnnotatedNode::getNamedDecl(Node);
+    if (Decl == nullptr)
+      return;
+    check(*SourceMgr, Decl, Node->getLocation());
   }
-
-  StringRef getUSR() const { return USR; }
-  StringRef getSpelling() const { return Spelling; }
 
 private:
-  SourceLocation lenToLoc(const SourceLocation &Start, unsigned Length) {
+  void check(const SourceManager &SourceMgr, const NamedDecl *Decl,
+             const SourceLocation &Start) {
+    const auto Length = Decl->getNameAsString().length();
     if (Length == 0)
-      return SourceLocation{};
-    return Start.getLocWithOffset(Length - 1);
-  }
-
-  void setResult(const SourceManager &SourceMgr, const NamedDecl *Decl,
-                 const SourceLocation &Start, const SourceLocation &End) {
+      return;
+    const auto End = Start.getLocWithOffset(Length - 1);
     // If the location is in an expanded macro, we do not want to rename it.
     if (!Start.isValid() || !End.isValid() || Start.isMacroID() ||
         End.isMacroID() || !isLocWithin(SourceMgr, Start, End))
       return;
-    USR = getUSRForDecl(*Decl);
-    Spelling = Decl->getNameAsString();
-    errs() << "Found symbol at offset: " << Spelling << "\n";
+    Data->USR = getUSRForDecl(*Decl);
+    Data->Spelling = Decl->getNameAsString();
   }
 
   bool isLocWithin(const SourceManager &SourceMgr, const SourceLocation &Start,
                    const SourceLocation &End) {
-    if (!Loc.hasValue()) {
+    if (!Data->Loc.hasValue()) {
       auto &FileMgr = SourceMgr.getFileManager();
-      Loc = SourceMgr.translateFileLineCol(FileMgr.getFile(File), Line, Column);
+      Data->Loc = SourceMgr.translateFileLineCol(FileMgr.getFile(Data->File),
+                                                 Data->Line, Data->Column);
     }
-    if (!Loc->isValid()) {
+    const auto Loc = *(Data->Loc);
+    if (!Loc.isValid()) {
       return false;
     }
-    return *Loc == Start || *Loc == End ||
-           (SourceMgr.isBeforeInTranslationUnit(Start, *Loc) &&
-            SourceMgr.isBeforeInTranslationUnit(*Loc, End));
+    return Loc == Start || Loc == End ||
+           (SourceMgr.isBeforeInTranslationUnit(Start, Loc) &&
+            SourceMgr.isBeforeInTranslationUnit(Loc, End));
   }
 
-  StringRef File;
-  unsigned Line;
-  unsigned Column;
-  llvm::Optional<SourceLocation> Loc;
-  std::string USR;
-  std::string Spelling;
+  SymbolData *Data;
 };
 }
 
@@ -208,15 +225,15 @@ llvm::cl::OptionCategory RenameCategory("rn options");
 static llvm::cl::opt<std::string>
     NewSpelling("new-name",
                 llvm::cl::desc("The new name to change the symbol to."),
-                llvm::cl::cat(RenameCategory));
+                llvm::cl::cat(RenameCategory), llvm::cl::Required);
 
 static llvm::cl::opt<unsigned>
     Line("line", llvm::cl::desc("The line the symbol is located on."),
-         llvm::cl::cat(RenameCategory));
+         llvm::cl::cat(RenameCategory), llvm::cl::Required);
 
 static llvm::cl::opt<unsigned>
     Column("column", llvm::cl::desc("The column the symbol is located in."),
-           llvm::cl::cat(RenameCategory));
+           llvm::cl::cat(RenameCategory), llvm::cl::Required);
 
 const std::string CLANG_RENAME_VERSION = "0.0.1";
 
@@ -247,38 +264,40 @@ int main(int argc, const char **argv) {
     exit(1);
   }
 
+  SymbolData Data(Files.front(), Line, Column, NewSpelling);
+
   tooling::RefactoringTool Tool(OP.getCompilations(), Files);
 
-  std::string USR;
-  std::string Spelling;
   {
-    SourceLocationHandler HandlerForSourceLoc(Files.front(), Line, Column);
+    SourceLocationHandler<DeclRefExprNode> DeclRefExprHandler(&Data);
+    SourceLocationHandler<NamedDeclNode> NamedDeclHandler(&Data);
     MatchFinder Finder;
-    Finder.addMatcher(namedDecl().bind(NamedDeclNode::ID()),
-                      &HandlerForSourceLoc);
-    Finder.addMatcher(declRefExpr().bind(DeclRefExprNode::ID()),
-                      &HandlerForSourceLoc);
+    Finder.addMatcher(DeclRefExprNode::matchNode(), &DeclRefExprHandler);
+    Finder.addMatcher(NamedDeclNode::matchNode(), &NamedDeclHandler);
     if (Tool.run(newFrontendActionFactory(&Finder).get())) {
       errs() << "Failed to find symbol at location: " << Files.front() << ":"
              << Line << ":" << Column << ".\n";
       exit(1);
     }
-    USR = HandlerForSourceLoc.getUSR();
-    Spelling = HandlerForSourceLoc.getSpelling();
-    errs() << "USR: " << USR << "\n";
-    errs() << "Spelling: " << Spelling << "\n";
+
+    errs() << "USR: " << Data.USR << "\n";
+    errs() << "Spelling: " << Data.Spelling << "\n";
   }
-  if (USR.empty()) {
+  if (Data.USR.empty()) {
     errs() << "Unable to determine USR.";
     exit(1);
   }
 
   // Find all references and rename them
   {
-    RenameHandler HandleRename(&Tool.getReplacements(), Spelling, NewSpelling);
+    auto Replace = &Tool.getReplacements();
+    RenameHandler<DeclRefExprNode> DeclRefExprHandler(Replace, &Data);
+    RenameHandler<NamedDeclNode> NamedDeclHandler(Replace, &Data);
     MatchFinder Finder;
-    Finder.addMatcher(declRefMatcher(USR), &HandleRename);
-    Finder.addMatcher(namedDeclMatcher(USR), &HandleRename);
+    Finder.addMatcher(DeclRefExprNode::matchNamedDecl(sameUSR(Data.USR)),
+                      &DeclRefExprHandler);
+    Finder.addMatcher(NamedDeclNode::matchNamedDecl(sameUSR(Data.USR)),
+                      &NamedDeclHandler);
     if (Tool.run(newFrontendActionFactory(&Finder).get())) {
       errs() << "Failed to rename symbol at location: " << Files.front() << ":"
              << Line << ":" << Column << ".\n";
