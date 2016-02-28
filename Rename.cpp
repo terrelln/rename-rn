@@ -12,6 +12,9 @@
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/raw_ostream.h>
 
+#include <array>
+#include <utility>
+
 using namespace clang;
 using namespace clang::ast_matchers;
 using namespace clang::ast_matchers::internal;
@@ -23,6 +26,7 @@ using llvm::StringRef;
 
 namespace rn {
 
+// Get the USR (a globally unique string) for a NamedDecl
 std::string getUSRForDecl(const NamedDecl &Decl) {
   llvm::SmallVector<char, 128> Buf;
 
@@ -32,25 +36,41 @@ std::string getUSRForDecl(const NamedDecl &Decl) {
   return std::string(Buf.data(), Buf.size());
 }
 
-AST_MATCHER_P(NamedDecl, sameUSR, StringRef, USR) {
+// This matcher matches all NamedDecl's that have the given USR (should only be
+// one)
+AST_MATCHER_P(NamedDecl, sameUSR, std::string, USR) {
   return getUSRForDecl(Node) == USR;
 }
 
+// The xxNode structs should be moved to their own file
 struct NamedDeclNode {
+  // NodeType is the type of the corresponding node in clang's AST
   using NodeType = clang::NamedDecl;
+  // MatcherType is of a matcher that matches NodeType
   using MatcherType = DeclarationMatcher;
+  // Return an identifier to use for binding
   static constexpr const char *ID() { return "NamedDecl"; }
 
+  // Takes NodeType and returns the NamedDecl that declares it
   static const NamedDecl *getNamedDecl(const NodeType *Node) { return Node; }
 
+  // Takes a NodeType and returns its source location
+  static SourceLocation getLocation(const NodeType *Node) {
+    return Node->getLocation();
+  }
+
+  // A matcher that matches all NodeType's and binds to ID()
   static const MatcherType matchNode() { return namedDecl().bind(ID()); }
 
-  static const DeclarationMatcher
+  // A matcher that matches all NodeType's whose NamedDecl matches InnerMatcher
+  // and binds to ID()
+  static const MatcherType
   matchNamedDecl(const Matcher<NamedDecl> &InnerMatcher) {
     return namedDecl(InnerMatcher).bind(ID());
   }
 };
 
+// Same as above
 struct DeclRefExprNode {
   using NodeType = clang::DeclRefExpr;
   using MatcherType = StatementMatcher;
@@ -58,6 +78,10 @@ struct DeclRefExprNode {
 
   static const NamedDecl *getNamedDecl(const NodeType *Node) {
     return Node->getFoundDecl();
+  }
+
+  static SourceLocation getLocation(const NodeType *Node) {
+    return Node->getLocation();
   }
 
   static const MatcherType matchNode() { return declRefExpr().bind(ID()); }
@@ -68,67 +92,70 @@ struct DeclRefExprNode {
   }
 };
 
-/*
-StatementMatcher declRefMatcher(StringRef USR) {
-  return declRefExpr(hasDeclaration(namedDecl(sameUSR(USR))))
-      .bind(DeclRefExprNode::ID());
-}
+struct CXXConstructorDeclNode {
+  using NodeType = clang::CXXConstructorDecl;
+  using MatcherType = DeclarationMatcher;
+  static constexpr const char *ID() { return "CXXConstructorDecl"; }
 
-DeclarationMatcher namedDeclMatcher(StringRef USR) {
-  return namedDecl(sameUSR(USR)).bind(NamedDeclNode::ID());
-}
+  static const NamedDecl *getNamedDecl(const NodeType *Node) {
+    return Node->getParent();
+  }
 
-namespace internal {
+  static SourceLocation getLocation(const NodeType *Node) {
+    return Node->getLocation();
+  }
 
-template <typename...> struct RunImpl;
+  static const MatcherType matchNode() {
+    return cxxConstructorDecl().bind(ID());
+  }
 
-template <> struct RunImpl<> {
-  static void run(Replacements *Replace, StringRef Spelling,
-                  StringRef NewSpelling,
-                  const MatchFinder::MatchResult &Result) {}
-};
-
-template <typename AnnotatedNode, typename... Rest>
-struct RunImpl<AnnotatedNode, Rest...> {
-  static void run(Replacements *Replace, StringRef Spelling,
-                  StringRef NewSpelling,
-                  const MatchFinder::MatchResult &Result) {
-    errs() << "Trying id: " << AnnotatedNode::ID() << "\n";
-    if (const auto Node =
-            Result.Nodes.getNodeAs<typename AnnotatedNode::NodeType>(
-                AnnotatedNode::ID())) {
-      errs() << "Found match with id: " << AnnotatedNode::ID() << "\n";
-      Replace->insert(Replacement(*(Result.SourceManager), Node->getLocation(),
-                                  Spelling.size(), NewSpelling));
-    } else {
-      RunImpl<Rest...>::run(Replace, Spelling, NewSpelling, Result);
-    }
+  static const MatcherType
+  matchNamedDecl(const Matcher<NamedDecl> &InnerMatcher) {
+    return cxxConstructorDecl(ofClass(InnerMatcher)).bind(ID());
   }
 };
 
-template <typename... AnnotatedNodes>
-class RenameHandlerImpl : public MatchFinder::MatchCallback {
-public:
-  RenameHandlerImpl(Replacements *Replace, StringRef Spelling,
-                    StringRef NewSpelling)
-      : Replace(Replace), Spelling(Spelling), NewSpelling(NewSpelling) {}
+struct RecordTypeNode {
+  using NodeType = clang::TypeLoc;
+  using MatcherType = TypeLocMatcher;
+  static constexpr const char *ID() { return "RecordType"; }
 
-  void run(const MatchFinder::MatchResult &Result) override {
-    errs() << "Calling impl\n";
-    RunImpl<AnnotatedNodes...>::run(Replace, Spelling, NewSpelling, Result);
+  static const NamedDecl *getNamedDecl(const NodeType *Node) {
+    const auto Type = Node->getType().getTypePtrOrNull();
+    if (Type == nullptr)
+      return nullptr;
+    return Type->getAsCXXRecordDecl();
   }
 
-private:
-  Replacements *Replace;
-  StringRef Spelling;
-  StringRef NewSpelling;
+  static SourceLocation getLocation(const NodeType *Node) {
+    return Node->getBeginLoc();
+  }
+
+  static const MatcherType matchNode() { return loc(recordType()).bind(ID()); }
+
+  static const MatcherType
+  matchNamedDecl(const Matcher<NamedDecl> &InnerMatcher) {
+    return loc(recordType(hasDeclaration(namedDecl(InnerMatcher)))).bind(ID());
+  }
 };
-}
 
-using RenameHandler =
-    internal::RenameHandlerImpl<DeclRefExprNode, NamedDeclNode>;
-*/
+#define RN_ADD_SOURCE_LOCATION_MATCHER(Type)                                   \
+  ::rn::SourceLocationHandler<::rn::Type##Node> Type##Handler(&Data);          \
+  Finder.addMatcher(::rn::Type##Node::matchNode(), &Type##Handler)
 
+#define RN_ADD_RENAME_MATCHER(Type)                                            \
+  ::rn::RenameHandler<::rn::Type##Node> Type##Handler(Replace, &Data);         \
+  Finder.addMatcher(::rn::Type##Node::matchNamedDecl(::rn::sameUSR(Data.USR)), \
+                    &Type##Handler)
+
+#define RN_ADD_ALL_MATCHERS(ADD_MATCHER)                                       \
+  ADD_MATCHER(DeclRefExpr);                                                    \
+  ADD_MATCHER(NamedDecl);                                                      \
+  ADD_MATCHER(CXXConstructorDecl); /* After: NamedDecl */                      \
+  ADD_MATCHER(RecordType);                                                     \
+  ;
+
+// Data about the Symbol that the Matcher callbacks need
 struct SymbolData {
   SymbolData(std::string File, unsigned Line, unsigned Column,
              std::string NewSpelling)
@@ -152,10 +179,12 @@ public:
       : Replace(Replace), Data(Data) {}
 
   void run(const MatchFinder::MatchResult &Result) override {
+    // Rename the Node if there is a match
     if (const auto Node =
             Result.Nodes.getNodeAs<typename AnnotatedNode::NodeType>(
                 AnnotatedNode::ID())) {
-      Replace->insert(Replacement(*(Result.SourceManager), Node->getLocation(),
+      Replace->insert(Replacement(*(Result.SourceManager),
+                                  AnnotatedNode::getLocation(Node),
                                   Data->Spelling.size(), Data->NewSpelling));
     }
   }
@@ -174,14 +203,17 @@ public:
     const auto SourceMgr = Result.SourceManager;
     if (SourceMgr == nullptr)
       return;
+    // Get the matched node
     const auto Node = Result.Nodes.getNodeAs<typename AnnotatedNode::NodeType>(
         AnnotatedNode::ID());
     if (Node == nullptr)
       return;
+    // and its NamedDecl
     const NamedDecl *Decl = AnnotatedNode::getNamedDecl(Node);
     if (Decl == nullptr)
       return;
-    check(*SourceMgr, Decl, Node->getLocation());
+    // See if it is at the location we are looking for
+    check(*SourceMgr, Decl, AnnotatedNode::getLocation(Node));
   }
 
 private:
@@ -192,6 +224,8 @@ private:
       return;
     const auto End = Start.getLocWithOffset(Length - 1);
     // If the location is in an expanded macro, we do not want to rename it.
+    // If the Data->Loc isn't between Start and End or if either SourceLocation
+    // is invalid or in an expanded macro its no good
     if (!Start.isValid() || !End.isValid() || Start.isMacroID() ||
         End.isMacroID() || !isLocWithin(SourceMgr, Start, End))
       return;
@@ -199,8 +233,11 @@ private:
     Data->Spelling = Decl->getNameAsString();
   }
 
+  // Returns true if Data->Loc is within [Start, End].
   bool isLocWithin(const SourceManager &SourceMgr, const SourceLocation &Start,
                    const SourceLocation &End) {
+    // We only have a SourceManager in the callback, so if the Loc hasn't been
+    // translated from <file>:<line>:<col> yet, translate it and save the data.
     if (!Data->Loc.hasValue()) {
       auto &FileMgr = SourceMgr.getFileManager();
       Data->Loc = SourceMgr.translateFileLineCol(FileMgr.getFile(Data->File),
@@ -217,6 +254,66 @@ private:
 
   SymbolData *Data;
 };
+/*
+template <unsigned I, unsigned N, template <typename> class Handler,
+          typename... AnnotatedNodes>
+struct AddMatchersImpl;
+
+template <unsigned I, unsigned N, template <typename> class Handler>
+struct AddMatchersImpl<I, N, Handler> {
+  template <typename Fn, typename... Args>
+  void operator()(const Fn &MatchAdder, MatchFinder &Finder,
+                  std::array<MatchFinder::MatchCallback, N> &Handlers,
+                  Args &&... args) const {}
+};
+
+template <unsigned I, unsigned N, template <typename> class Handler,
+          typename AnnotatedNode, typename... Rest>
+struct AddMatchersImpl<I, N, Handler, AnnotatedNode, Rest...> {
+  template <typename Fn, typename... Args>
+  void operator()(const Fn &MatchAdder, MatchFinder &Finder,
+                  std::array<MatchFinder::MatchCallback, N> &Handlers,
+                  Args &&... args) const {
+    Handlers[I] = Handler<AnnotatedNode>{std::forward<Args>(args)...};
+    // MatchAdder.template run<AnnotatedNode>(Finder, &Handlers[I]);
+    Finder.addMatcher(MatchAdder.template run<AnnotatedNode>(), &Handlers[]
+  });
+    AddMatchersImpl<I + 1, N, Handler, Rest...>{}(MatchAdder, Finder, Handlers,
+                                                  std::forward<Args>(args)...);
+  }
+};
+
+template <template <typename> class Handler, typename... AnnotatedNodes>
+struct AddMatchers {
+  template <typename Fn, typename... Args>
+  std::array<MatchFinder::MatchCallback, sizeof...(AnnotatedNodes)>
+  operator()(const Fn &MatchAdder, MatchFinder &Finder, Args &&... args) {
+    std::array<MatchFinder::MatchCallback, sizeof...(AnnotatedNodes)> Handlers;
+    AddMatchersImpl<0, sizeof...(AnnotatedNodes), Handler,
+                    AnnotatedNodes...>{}(MatchAdder, Finder, Handlers,
+                                         std::forward<Args>(args)...);
+    return Handlers;
+  }
+};
+
+struct SourceLocMatcher {
+  template <typename AnnotatedNode>
+  typename AnnotatedNode::MatcherType run() const {
+    return AnnotatedNode::matchNode();
+  }
+};
+
+struct RenameMatcher {
+  RenameMatcher(std::string USR) : USR(std::move(USR)) {}
+  template <typename AnnotatedNode>
+  typename AnnotatedNode::MatcherType run() const {
+    return AnnotatedNode::matchNamedDecl(sameUSR(USR));
+  }
+
+private:
+  std::string USR;
+};
+*/
 }
 
 // Options
@@ -242,8 +339,9 @@ static void PrintVersion() {
 }
 
 const char RenameUsage[] = "A tool to rename symbols in C/C++ code.\n\
-                            rn renames every occurrence of a symbol found at <offset> in\n\
-                            <source>. The results are written to stdout.\n";
+                            rn renames every occurrence of a symbol found at\
+                           < offset >\
+                           in\n<source>.The results are written to stdout.\n ";
 
 int main(int argc, const char **argv) {
   using namespace rn;
@@ -268,12 +366,10 @@ int main(int argc, const char **argv) {
 
   tooling::RefactoringTool Tool(OP.getCompilations(), Files);
 
+  // Find the source location
   {
-    SourceLocationHandler<DeclRefExprNode> DeclRefExprHandler(&Data);
-    SourceLocationHandler<NamedDeclNode> NamedDeclHandler(&Data);
     MatchFinder Finder;
-    Finder.addMatcher(DeclRefExprNode::matchNode(), &DeclRefExprHandler);
-    Finder.addMatcher(NamedDeclNode::matchNode(), &NamedDeclHandler);
+    RN_ADD_ALL_MATCHERS(RN_ADD_SOURCE_LOCATION_MATCHER)
     if (Tool.run(newFrontendActionFactory(&Finder).get())) {
       errs() << "Failed to find symbol at location: " << Files.front() << ":"
              << Line << ":" << Column << ".\n";
@@ -284,20 +380,16 @@ int main(int argc, const char **argv) {
     errs() << "Spelling: " << Data.Spelling << "\n";
   }
   if (Data.USR.empty()) {
-    errs() << "Unable to determine USR.";
+    errs() << "Unable to determine USR.\n";
     exit(1);
   }
 
   // Find all references and rename them
   {
     auto Replace = &Tool.getReplacements();
-    RenameHandler<DeclRefExprNode> DeclRefExprHandler(Replace, &Data);
-    RenameHandler<NamedDeclNode> NamedDeclHandler(Replace, &Data);
+
     MatchFinder Finder;
-    Finder.addMatcher(DeclRefExprNode::matchNamedDecl(sameUSR(Data.USR)),
-                      &DeclRefExprHandler);
-    Finder.addMatcher(NamedDeclNode::matchNamedDecl(sameUSR(Data.USR)),
-                      &NamedDeclHandler);
+    RN_ADD_ALL_MATCHERS(RN_ADD_RENAME_MATCHER)
     if (Tool.run(newFrontendActionFactory(&Finder).get())) {
       errs() << "Failed to rename symbol at location: " << Files.front() << ":"
              << Line << ":" << Column << ".\n";
@@ -310,3 +402,9 @@ int main(int argc, const char **argv) {
 
   return 0;
 }
+
+#undef RN_ADD_SOURCE_LOCATION_MATCHER
+
+#undef RN_ADD_RENAME_MATCHER
+
+#undef RN_ADD_ALL_MATCHERS
