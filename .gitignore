@@ -3,3 +3,4 @@ ycm_*
 .ycm_*
 *.o
 rn
+*.swp
