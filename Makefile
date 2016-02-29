@@ -19,7 +19,7 @@ CXXFLAGS:=-std=c++11 -g
 rn: Rename.cpp.o
 	$(CXX) `$(BUILD)/bin/llvm-config --ldflags` $(CXXFLAGS) $(DEFINES) -o rn Rename.cpp.o `$(BUILD)/bin/llvm-config --system-libs --libs` $(LIBPATHS) $(LIBS) $(INCS)
 
-Rename.cpp.o: Rename.cpp
+Rename.cpp.o: Rename.cpp Handlers.h Matchers.h Nodes.h Utility.h
 	$(CXX) $(CXXFLAGS) `$(BUILD)/bin/llvm-config --cxxflags` $(INCS) -c -o Rename.cpp.o Rename.cpp
 	#!$(CXX) $(CXXFLAGS) -c -o Rename.cpp.o Rename.cpp $(INCS)
 
