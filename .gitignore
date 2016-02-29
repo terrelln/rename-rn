@@ -4,3 +4,5 @@ ycm_*
 *.o
 rn
 *.swp
+test/test
+*.a
