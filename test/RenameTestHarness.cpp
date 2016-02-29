@@ -8,18 +8,33 @@
 #include <clang/Tooling/CompilationDatabase.h>
 #include <clang/Tooling/Refactoring.h>
 
-#include <set>
-#include <utility>
+#include <string>
 #include <vector>
 
-using clang::tooling::CompilationDatabase;
+using clang::tooling::FixedCompilationDatabase;
 using clang::tooling::RefactoringTool;
 using clang::tooling::Replacements;
 using clang::tooling::newFrontendActionFactory;
 
 using clang::ast_matchers::MatchFinder;
 
-RunResults RunRenaming(std::string File, unsigned Line, unsigned Column,
+std::string addPrefix(std::string File) {
+  const std::string Directory = "test/files/";
+  return Directory + File;
+}
+
+std::ostream &operator<<(std::ostream &out, const RunResults &Results) {
+  out << "\nSourceLocationProcessingFailed: "
+      << Results.SourceLocationProcessingFailed
+      << "\nUnableToDetermineUSR: " << Results.UnableToDetermineUSR
+      << "\nRenameProcessingFailed: " << Results.RenameProcessingFailed
+      << "\nReplacements:";
+  for (const auto &Replace : Results.Replaces) {
+    out << "\n\t" << Replace.toString();
+  }
+  return out;
+}
+RunResults runRenaming(std::string File, unsigned Line, unsigned Column,
                        std::string NewSpelling) {
   RunResults Results;
   using namespace rn;
@@ -27,11 +42,13 @@ RunResults RunRenaming(std::string File, unsigned Line, unsigned Column,
   SymbolData Data(File, Line, Column, NewSpelling);
 
   std::string ErrorMsg;
-  auto CompilationDB =
-      CompilationDatabase::autoDetectFromSource(File, ErrorMsg);
+  std::vector<std::string> Args;
+  Args.push_back("-std=c++11");
+  auto CompilationDB = FixedCompilationDatabase{".", Args};
 
-  std::vector<std::string> Files = {File};
-  RefactoringTool Tool(*CompilationDB, Files);
+  std::vector<std::string> Files;
+  Files.push_back(File);
+  RefactoringTool Tool(CompilationDB, Files);
 
   // Find the source location
   {
@@ -51,7 +68,6 @@ RunResults RunRenaming(std::string File, unsigned Line, unsigned Column,
   // Find all references and rename them
   {
     auto Replace = &Tool.getReplacements();
-
     MatchFinder Finder;
     RN_ADD_ALL_MATCHERS(RN_ADD_RENAME_MATCHER)
     if (Tool.run(newFrontendActionFactory(&Finder).get())) {
