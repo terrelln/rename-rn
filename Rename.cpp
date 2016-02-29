@@ -13,6 +13,7 @@
 #include <llvm/Support/raw_ostream.h>
 
 #include <array>
+#include <type_traits>
 #include <utility>
 
 using namespace clang;
@@ -42,7 +43,18 @@ AST_MATCHER_P(NamedDecl, sameUSR, std::string, USR) {
   return getUSRForDecl(Node) == USR;
 }
 
-// The xxNode structs should be moved to their own file
+AST_TYPE_MATCHER(clang::TagType, tagType);
+
+const VariadicDynCastAllOfMatcher<clang::Decl, clang::TypeDecl> typeDecl;
+
+AST_MATCHER_P(UsingDirectiveDecl, nominatedNamespace, Matcher<NamespaceDecl>,
+              InnerMatcher) {
+  const NamespaceDecl *const Namespace = Node.getNominatedNamespace();
+  return (Namespace != nullptr &&
+          InnerMatcher.matches(*Namespace, Finder, Builder));
+}
+
+namespace internal {
 struct NamedDeclNode {
   // NodeType is the type of the corresponding node in clang's AST
   using NodeType = clang::NamedDecl;
@@ -69,8 +81,53 @@ struct NamedDeclNode {
     return namedDecl(InnerMatcher).bind(ID());
   }
 };
+}
 
-// Same as above
+struct ValueDeclNode : public internal::NamedDeclNode {
+  static constexpr const char *ID() { return "ValueDecl"; }
+
+  static const MatcherType matchNode() { return valueDecl().bind(ID()); }
+
+  static const MatcherType
+  matchNamedDecl(const Matcher<NamedDecl> &InnerMatcher) {
+    return valueDecl(InnerMatcher).bind(ID());
+  }
+};
+/*
+struct RecordDeclNode : public internal::NamedDeclNode {
+  static constexpr const char *ID() { return "RecordDecl"; }
+
+  static const MatcherType matchNode() { return recordDecl().bind(ID()); }
+
+  static const MatcherType
+  matchNamedDecl(const Matcher<NamedDecl> &InnerMatcher) {
+    return recordDecl(InnerMatcher).bind(ID());
+  }
+};
+
+struct EnumDeclNode : public internal::NamedDeclNode {
+  static constexpr const char *ID() { return "EnumDecl"; }
+
+  static const MatcherType matchNode() { return enumDecl().bind(ID()); }
+
+  static const MatcherType
+  matchNamedDecl(const Matcher<NamedDecl> &InnerMatcher) {
+    return enumDecl(InnerMatcher).bind(ID());
+  }
+};
+*/
+
+struct TypeDeclNode : public internal::NamedDeclNode {
+  static constexpr const char *ID() { return "TypeDecl"; }
+
+  static const MatcherType matchNode() { return typeDecl().bind(ID()); }
+
+  static const MatcherType
+  matchNamedDecl(const Matcher<NamedDecl> &InnerMatcher) {
+    return typeDecl(InnerMatcher).bind(ID());
+  }
+};
+
 struct DeclRefExprNode {
   using NodeType = clang::DeclRefExpr;
   using MatcherType = StatementMatcher;
@@ -114,7 +171,7 @@ struct CXXConstructorDeclNode {
     return cxxConstructorDecl(ofClass(InnerMatcher)).bind(ID());
   }
 };
-
+/*
 struct RecordTypeNode {
   using NodeType = clang::TypeLoc;
   using MatcherType = TypeLocMatcher;
@@ -139,6 +196,138 @@ struct RecordTypeNode {
   }
 };
 
+struct EnumTypeNode {
+  using NodeType = clang::TypeLoc;
+  using MatcherType = TypeLocMatcher;
+  static constexpr const char *ID() { return "EnumType"; }
+
+  static const NamedDecl *getNamedDecl(const NodeType *Node) {
+    const auto Type = Node->getType().getTypePtrOrNull();
+    if (Type == nullptr)
+      return nullptr;
+    return Type->getAsTagDecl();
+  }
+
+  static SourceLocation getLocation(const NodeType *Node) {
+    return Node->getBeginLoc();
+  }
+
+  static const MatcherType matchNode() { return loc(enumType()).bind(ID()); }
+
+  static const MatcherType
+  matchNamedDecl(const Matcher<NamedDecl> &InnerMatcher) {
+    return loc(enumType(hasDeclaration(namedDecl(InnerMatcher)))).bind(ID());
+  }
+};
+*/
+struct TagTypeNode {
+  using NodeType = clang::TypeLoc;
+  using MatcherType = TypeLocMatcher;
+  static constexpr const char *ID() { return "TagType"; }
+
+  static const NamedDecl *getNamedDecl(const NodeType *Node) {
+    const auto Type = Node->getType().getTypePtrOrNull();
+    if (Type == nullptr)
+      return nullptr;
+    return Type->getAsTagDecl();
+  }
+
+  static SourceLocation getLocation(const NodeType *Node) {
+    return Node->getBeginLoc();
+  }
+
+  static const MatcherType matchNode() { return loc(tagType()).bind(ID()); }
+
+  static const MatcherType
+  matchNamedDecl(const Matcher<NamedDecl> &InnerMatcher) {
+    return loc(tagType(hasDeclaration(namedDecl(InnerMatcher)))).bind(ID());
+  }
+};
+
+struct NestedNameSpecifierNode {
+  using NodeType = clang::NestedNameSpecifierLoc;
+  using MatcherType = NestedNameSpecifierLocMatcher;
+  static constexpr const char *ID() { return "NestedNameSpecifier"; }
+
+  static const NamedDecl *getNamedDecl(const NodeType *Node) {
+    const auto NestedNameSpecifier = Node->getNestedNameSpecifier();
+    if (NestedNameSpecifier == nullptr)
+      return nullptr;
+    if (const auto NamespaceDecl = NestedNameSpecifier->getAsNamespace())
+      return NamespaceDecl;
+    if (const auto NamespaceAliasDecl =
+            NestedNameSpecifier->getAsNamespaceAlias())
+      return NamespaceAliasDecl;
+    return nullptr;
+  }
+
+  static SourceLocation getLocation(const NodeType *Node) {
+    return Node->getLocalBeginLoc();
+  }
+
+  static const MatcherType matchNode() {
+    return nestedNameSpecifierLoc().bind(ID());
+  }
+
+  static const MatcherType
+  matchNamedDecl(const Matcher<NamedDecl> &InnerMatcher) {
+    return loc(specifiesNamespace(InnerMatcher)).bind(ID());
+  }
+};
+
+struct UsingDirectiveDeclNode {
+  using NodeType = clang::UsingDirectiveDecl;
+  using MatcherType = DeclarationMatcher;
+  static constexpr const char *ID() { return "UsingDirectiveDecl"; }
+
+  static const NamedDecl *getNamedDecl(const NodeType *Node) {
+    return Node->getNominatedNamespaceAsWritten();
+  }
+
+  static SourceLocation getLocation(const NodeType *Node) {
+    return Node->getIdentLocation();
+  }
+
+  static const MatcherType matchNode() {
+    return usingDirectiveDecl().bind(ID());
+  }
+
+  static const MatcherType
+  matchNamedDecl(const Matcher<NamedDecl> &InnerMatcher) {
+    return usingDirectiveDecl(nominatedNamespace(InnerMatcher)).bind(ID());
+  }
+};
+
+struct UsingDeclNode {
+  using NodeType = clang::UsingDecl;
+  using MatcherType = DeclarationMatcher;
+  static constexpr const char *ID() { return "UsingDecl"; }
+
+  static const NamedDecl *getNamedDecl(const NodeType *Node) {
+    // If this UsingDecl shadows more than one declaration, e.g. an overloaded
+    // function, then we give up on it since there is no way to know what to
+    // rename.
+    if (Node->shadow_size() != 1)
+      return nullptr;
+    const auto UsingShadowDecl = *(Node->shadow_begin());
+    if (UsingShadowDecl == nullptr)
+      return nullptr;
+    return UsingShadowDecl->getTargetDecl();
+  }
+
+  static SourceLocation getLocation(const NodeType *Node) {
+    return Node->getNameInfo().getLoc();
+  }
+
+  static const MatcherType matchNode() { return usingDecl().bind(ID()); }
+
+  static const MatcherType
+  matchNamedDecl(const Matcher<NamedDecl> &InnerMatcher) {
+    return usingDecl(hasAnyUsingShadowDecl(hasTargetDecl(InnerMatcher)))
+        .bind(ID());
+  }
+};
+
 #define RN_ADD_SOURCE_LOCATION_MATCHER(Type)                                   \
   ::rn::SourceLocationHandler<::rn::Type##Node> Type##Handler(&Data);          \
   Finder.addMatcher(::rn::Type##Node::matchNode(), &Type##Handler)
@@ -150,10 +339,14 @@ struct RecordTypeNode {
 
 #define RN_ADD_ALL_MATCHERS(ADD_MATCHER)                                       \
   ADD_MATCHER(DeclRefExpr);                                                    \
-  ADD_MATCHER(NamedDecl);                                                      \
-  ADD_MATCHER(CXXConstructorDecl); /* After: NamedDecl */                      \
-  ADD_MATCHER(RecordType);                                                     \
-  ;
+  ADD_MATCHER(ValueDecl);                                                      \
+  ADD_MATCHER(TypeDecl);                                                       \
+  ADD_MATCHER(CXXConstructorDecl);                                             \
+  ADD_MATCHER(TagType);                                                        \
+  ADD_MATCHER(NestedNameSpecifier);                                            \
+  ADD_MATCHER(UsingDirectiveDecl);                                             \
+  ADD_MATCHER(UsingDecl);                                                      \
+  ; /* Just for easy copy/pasting */
 
 // Data about the Symbol that the Matcher callbacks need
 struct SymbolData {
@@ -179,6 +372,9 @@ public:
       : Replace(Replace), Data(Data) {}
 
   void run(const MatchFinder::MatchResult &Result) override {
+    if (std::is_same<AnnotatedNode, UsingDeclNode>::value) {
+      errs() << "Matched a UsingDecl\n";
+    }
     // Rename the Node if there is a match
     if (const auto Node =
             Result.Nodes.getNodeAs<typename AnnotatedNode::NodeType>(
