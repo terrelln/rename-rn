@@ -98,9 +98,12 @@ private:
     // We only have a SourceManager in the callback, so if the Loc hasn't been
     // translated from <file>:<line>:<col> yet, translate it and save the data.
     if (!Data->Loc.hasValue()) {
-      auto &FileMgr = SourceMgr.getFileManager();
-      Data->Loc = SourceMgr.translateFileLineCol(FileMgr.getFile(Data->File),
-                                                 Data->Line, Data->Column);
+      const auto *FileEntry = SourceMgr.getFileManager().getFile(Data->File);
+      if (FileEntry == nullptr) {
+        return false;
+      }
+      Data->Loc =
+          SourceMgr.translateFileLineCol(FileEntry, Data->Line, Data->Column);
     }
     const auto Loc = *(Data->Loc);
     if (!Loc.isValid()) {
