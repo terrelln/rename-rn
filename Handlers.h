@@ -7,6 +7,7 @@
 
 #include <llvm/ADT/Optional.h>
 
+#include <iostream>
 namespace rn {
 
 // Data about the Symbol that the Matcher callbacks need
@@ -53,7 +54,8 @@ template <typename AnnotatedNode>
 class SourceLocationHandler
     : public ::clang::ast_matchers::MatchFinder::MatchCallback {
 public:
-  SourceLocationHandler(SymbolData *Data) : Data(Data) {}
+  SourceLocationHandler(SymbolData *Data)
+      : Data(Data), AlreadyMatchedThisNode(false) {}
 
   virtual void
   run(const ::clang::ast_matchers::MatchFinder::MatchResult &Result) {
@@ -87,10 +89,14 @@ private:
     if (!Start.isValid() || !End.isValid() || Start.isMacroID() ||
         End.isMacroID() || !isLocWithin(SourceMgr, Start, End))
       return;
-    if (!Data->USR.empty())
-      return;
+    // This is a workaround for RecordDecl's with definitions, since we want the
+    // outer matcher.
+    if (AlreadyMatchedThisNode)
+          return;
+    std::cerr << "Symbol is type: " << AnnotatedNode::ID() << std::endl;
     Data->USR = getUSRForDecl(Decl);
     Data->Spelling = Decl->getNameAsString();
+    AlreadyMatchedThisNode = true;
   }
 
   // Returns true if Data->Loc is within [Start, End].
@@ -117,5 +123,6 @@ private:
   }
 
   SymbolData *Data;
+  bool AlreadyMatchedThisNode;
 };
 }
