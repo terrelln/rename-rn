@@ -5,11 +5,18 @@
 #include "../Nodes.h"
 
 #include <clang/ASTMatchers/ASTMatchFinder.h>
+#include <clang/Basic/Diagnostic.h>
+#include <clang/Basic/FileManager.h>
+#include <clang/Basic/SourceManager.h>
+#include <clang/Basic/FileSystemOptions.h>
 #include <clang/Tooling/CompilationDatabase.h>
 #include <clang/Tooling/Refactoring.h>
 
+#include <fstream>
 #include <string>
 #include <vector>
+
+using namespace clang;
 
 using clang::tooling::FixedCompilationDatabase;
 using clang::tooling::RefactoringTool;
@@ -77,4 +84,32 @@ RunResults runRenaming(std::string File, unsigned Line, unsigned Column,
   }
   Results.Replaces = Tool.getReplacements();
   return Results;
+}
+
+namespace {
+void getLineColumn(std::string File, unsigned Offset, unsigned *Line,
+                   unsigned *Column) {
+  if (Line == nullptr || Column == nullptr)
+    return;
+  *Line = 1;
+  std::string Buffer;
+  std::ifstream In{File};
+  while (std::getline(In, Buffer)) {
+    if (Buffer.length() + 1 > Offset) {
+      *Column = Offset + 1;
+      return;
+    }
+    ++(*Line);
+    Offset -= Buffer.length() + 1;
+    Buffer.clear();
+  }
+  *Column = Offset + 1;
+}
+}
+
+RunResults runRenaming(std::string File, unsigned Offset,
+                       std::string NewSpelling) {
+  unsigned Line, Column;
+  getLineColumn(File, Offset, &Line, &Column);
+  return runRenaming(File, Line, Column, NewSpelling);
 }

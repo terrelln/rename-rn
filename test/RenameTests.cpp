@@ -5,99 +5,39 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <vector>
 
 using namespace std;
 using namespace clang::tooling;
 
-TEST(VarDecl, Works) {
-  string File = addPrefix("VarDecl.cpp");
-  string NewSpelling = "hey";
-  Replacements XReplaces = {Replacement{File, 36, 1, NewSpelling},
-                            Replacement{File, 41, 1, NewSpelling},
-                            Replacement{File, 58, 1, NewSpelling},
-                            Replacement{File, 62, 1, NewSpelling},
-                            Replacement{File, 74, 1, NewSpelling}};
-  RunResults ExpectedResults(std::move(XReplaces));
+void checkReplacements(string File, unsigned SpellingLength, string NewSpelling,
+                       const std::vector<unsigned> &Locs) {
+  File = addPrefix(File);
+  Replacements Replaces;
+  for (const auto Loc : Locs) {
+    Replaces.emplace(File, Loc, SpellingLength, NewSpelling);
+  }
+  RunResults ExpectedResults{std::move(Replaces)};
+  RunResults ActualResults;
 
-  RunResults ActualResults = runRenaming(File, 5, 7, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
-
-  ActualResults = runRenaming(File, 6, 3, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
-
-  ActualResults = runRenaming(File, 7, 11, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
-
-  ActualResults = runRenaming(File, 7, 15, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
-
-  ActualResults = runRenaming(File, 8, 10, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
-
-  // Check `yss`
-  Replacements YssReplaces = {Replacement{File, 83, 3, NewSpelling}};
-  ExpectedResults.Replaces = std::move(YssReplaces);
-
-  for (unsigned col = 5; col < 8; ++col) {
-    ActualResults = runRenaming(File, 10, col, NewSpelling);
-    EXPECT_EQ(ExpectedResults, ActualResults);
+  for (const auto Loc : Locs) {
+    EXPECT_EQ(ExpectedResults, runRenaming(File, Loc, NewSpelling));
   }
 }
 
-TEST(TagDecl, RecordDecl) {
-  string File = addPrefix("RecordDecl.cpp");
-  string NewSpelling = "PT";
-  Replacements Replaces = {Replacement{File, 21, 2, NewSpelling},
-                           Replacement{File, 32, 2, NewSpelling},
-                           Replacement{File, 39, 2, NewSpelling},
-                           Replacement{File, 47, 2, NewSpelling},
-                           Replacement{File, 56, 2, NewSpelling},
-                           Replacement{File, 74, 2, NewSpelling},
-                           Replacement{File, 96, 2, NewSpelling},
-                           Replacement{File, 112, 2, NewSpelling},
-                           Replacement{File, 119, 2, NewSpelling},
-                           Replacement{File, 159, 2, NewSpelling},
-                           Replacement{File, 166, 2, NewSpelling},
-                           Replacement{File, 174, 2, NewSpelling},
-                           Replacement{File, 239, 2, NewSpelling}};
-  RunResults ExpectedResults{std::move(Replaces)};
+TEST(VarDecl, Works) {
+  checkReplacements("VarDecl.cpp", 1, "hey", {36, 41, 58, 62, 74});
+}
 
-  RunResults ActualResults = runRenaming(File, 2, 8, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
+TEST(RecordDecl, Struct) {
+  checkReplacements("RecordDecl.cpp", 2, "PT",
+                    {21, 32, 39, 47, 56, 74, 96, 112, 119, 159, 166, 174, 239});
+}
 
-  ActualResults = runRenaming(File, 3, 8, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
+TEST(EnumDecl, Enum) {
+  checkReplacements("EnumDecl.cpp", 1, "H", {5, 84, 90, 96, 181});
+}
 
-  ActualResults = runRenaming(File, 4, 3, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
-
-  ActualResults = runRenaming(File, 5, 3, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
-
-  ActualResults = runRenaming(File, 5, 4, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
-
-  ActualResults = runRenaming(File, 5, 12, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
-
-  ActualResults = runRenaming(File, 6, 12, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
-
-  ActualResults = runRenaming(File, 7, 4, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
-
-  ActualResults = runRenaming(File, 9, 10, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
-
-  ActualResults = runRenaming(File, 16, 1, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
-
-  ActualResults = runRenaming(File, 16, 8, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
-
-  ActualResults = runRenaming(File, 16, 16, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
-
-  ActualResults = runRenaming(File, 24, 10, NewSpelling);
-  EXPECT_EQ(ExpectedResults, ActualResults);
+TEST(EnumDecl, EnumClass) {
+  checkReplacements("EnumDecl.cpp", 1, "H", {31, 45, 140, 147, 153, 168, 193});
 }

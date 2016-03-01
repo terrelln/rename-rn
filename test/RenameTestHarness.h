@@ -47,3 +47,6 @@ std::string addPrefix(std::string File);
 
 RunResults runRenaming(std::string File, unsigned Line, unsigned Column,
                        std::string NewSpelling);
+
+RunResults runRenaming(std::string File, unsigned Offset,
+                       std::string NewSpelling);
