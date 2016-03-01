@@ -14,3 +14,5 @@ auto z = F::Z;
 
 using E::A;
 using F::X;
+
+enum class J { A, B, C, X, Y, Z };

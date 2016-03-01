@@ -5,6 +5,8 @@
 #include <clang/AST/AST.h>
 #include <clang/ASTMatchers/ASTMatchers.h>
 
+#include <llvm/Support/Casting.h>
+
 #include <string>
 
 namespace rn {
@@ -23,10 +25,19 @@ const clang::ast_matchers::internal::VariadicDynCastAllOfMatcher<
     clang::Decl, clang::TagDecl> tagDecl;
 
 AST_MATCHER_P(clang::UsingDirectiveDecl, nominatedNamespace,
-              clang::ast_matchers::internal::Matcher<clang::NamespaceDecl>,
+              clang::ast_matchers::internal::Matcher<clang::NamedDecl>,
               InnerMatcher) {
-  const clang::NamespaceDecl *const Namespace = Node.getNominatedNamespace();
-  return (Namespace != nullptr &&
-          InnerMatcher.matches(*Namespace, Finder, Builder));
+  const clang::NamedDecl *const NamespaceAsWritten =
+      Node.getNominatedNamespaceAsWritten();
+  return (NamespaceAsWritten != nullptr &&
+          InnerMatcher.matches(*NamespaceAsWritten, Finder, Builder));
+}
+
+AST_MATCHER_P(clang::NamespaceAliasDecl, aliasesNamespace,
+              clang::ast_matchers::internal::Matcher<clang::NamedDecl>,
+              InnerMatcher) {
+  const auto NamespaceAsWritten = Node.getAliasedNamespace();
+  return (NamespaceAsWritten != nullptr &&
+          InnerMatcher.matches(*NamespaceAsWritten, Finder, Builder));
 }
 }
