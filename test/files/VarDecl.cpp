@@ -7,3 +7,4 @@ int fn() {
   int y = x = x;
   return x;
 }
+int yss = 5;
