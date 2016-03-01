@@ -34,6 +34,10 @@ static llvm::cl::opt<unsigned>
     Column("column", llvm::cl::desc("The column the symbol is located in."),
            llvm::cl::cat(RenameCategory), llvm::cl::Required);
 
+static llvm::cl::opt<bool>
+    Rewrite("rewrite", llvm::cl::desc("Should the files be rewritten."),
+            llvm::cl::cat(RenameCategory), llvm::cl::Required);
+
 const std::string CLANG_RENAME_VERSION = "0.0.1";
 
 static void PrintVersion() {
@@ -92,7 +96,13 @@ int main(int argc, const char **argv) {
 
     MatchFinder Finder;
     RN_ADD_ALL_MATCHERS(RN_ADD_RENAME_MATCHER)
-    if (Tool.run(newFrontendActionFactory(&Finder).get())) {
+    bool Result;
+    if (Rewrite) {
+      Result = Tool.runAndSave(newFrontendActionFactory(&Finder).get());
+    } else {
+      Result = Tool.run(newFrontendActionFactory(&Finder).get());
+    }
+    if (Result) {
       errs() << "Failed to rename symbol at location: " << Files.front() << ":"
              << Line << ":" << Column << ".\n";
     }
