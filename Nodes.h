@@ -19,9 +19,9 @@ namespace rn {
 #define RN_ADD_ALL_MATCHERS(ADD_MATCHER)                                       \
   ADD_MATCHER(DeclRefExpr);                                                    \
   ADD_MATCHER(ValueDecl);                                                      \
-  ADD_MATCHER(TypeDecl);                                                       \
-  ADD_MATCHER(CXXConstructorDecl);                                             \
+  ADD_MATCHER(TagDecl);                                                        \
   ADD_MATCHER(TagType);                                                        \
+  ADD_MATCHER(CXXConstructorDecl);                                             \
   ADD_MATCHER(NestedNameSpecifier);                                            \
   ADD_MATCHER(UsingDirectiveDecl);                                             \
   ADD_MATCHER(UsingDecl);                                                      \
@@ -51,10 +51,10 @@ struct ValueDeclNode {
   }
 };
 
-struct TypeDeclNode {
-  using NodeType = ::clang::NamedDecl;
+struct TagDeclNode {
+  using NodeType = ::clang::TagDecl;
   using MatcherType = DeclarationMatcher;
-  static constexpr const char *ID() { return "TypeDecl"; }
+  static constexpr const char *ID() { return "TagDecl"; }
 
   static const ::clang::NamedDecl *getNamedDecl(const NodeType *Node) {
     return Node;
@@ -64,11 +64,11 @@ struct TypeDeclNode {
     return Node->getLocation();
   }
 
-  static const MatcherType matchNode() { return typeDecl().bind(ID()); }
+  static const MatcherType matchNode() { return tagDecl().bind(ID()); }
 
   static const MatcherType
   matchNamedDecl(const Matcher<::clang::NamedDecl> &InnerMatcher) {
-    return typeDecl(InnerMatcher).bind(ID());
+    return tagDecl(InnerMatcher).bind(ID());
   }
 };
 

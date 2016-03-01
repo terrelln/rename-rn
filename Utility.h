@@ -10,10 +10,13 @@
 namespace rn {
 
 // Get the USR (a globally unique string) for a NamedDecl
-std::string getUSRForDecl(const clang::NamedDecl &Decl) {
+std::string getUSRForDecl(const clang::NamedDecl *Decl) {
   llvm::SmallVector<char, 128> Buf;
 
-  if (clang::index::generateUSRForDecl(&Decl, Buf))
+  const auto *CanonicalDecl = Decl->getCanonicalDecl();
+
+  if (CanonicalDecl == nullptr ||
+      clang::index::generateUSRForDecl(CanonicalDecl, Buf))
     return std::string{};
 
   return std::string(Buf.data(), Buf.size());

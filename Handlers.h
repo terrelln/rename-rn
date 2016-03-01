@@ -87,7 +87,9 @@ private:
     if (!Start.isValid() || !End.isValid() || Start.isMacroID() ||
         End.isMacroID() || !isLocWithin(SourceMgr, Start, End))
       return;
-    Data->USR = getUSRForDecl(*Decl);
+    if (!Data->USR.empty())
+      return;
+    Data->USR = getUSRForDecl(Decl);
     Data->Spelling = Decl->getNameAsString();
   }
 
