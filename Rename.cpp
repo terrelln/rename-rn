@@ -9,6 +9,7 @@
 #include <llvm/ADT/IntrusiveRefCntPtr.h>
 #include <llvm/Support/raw_ostream.h>
 
+using clang::IgnoringDiagConsumer;
 using clang::tooling::CommonOptionsParser;
 using clang::tooling::RefactoringTool;
 using clang::tooling::newFrontendActionFactory;
@@ -71,6 +72,8 @@ int main(int argc, const char **argv) {
   SymbolData Data(Files.front(), Line, Column, NewSpelling);
 
   RefactoringTool Tool(OP.getCompilations(), Files);
+  IgnoringDiagConsumer DiagConsumer;
+  Tool.setDiagnosticConsumer(&DiagConsumer);
 
   // Find the source location
   {
@@ -81,9 +84,6 @@ int main(int argc, const char **argv) {
              << Line << ":" << Column << ".\n";
       exit(1);
     }
-
-    errs() << "USR: " << Data.USR << "\n";
-    errs() << "Spelling: " << Data.Spelling << "\n";
   }
   if (Data.USR.empty()) {
     errs() << "Unable to determine USR.\n";
@@ -107,9 +107,11 @@ int main(int argc, const char **argv) {
              << Line << ":" << Column << ".\n";
     }
   }
-  llvm::outs() << "Replacements collected by the tool:\n";
-  for (auto &r : Tool.getReplacements()) {
-    llvm::outs() << r.toString() << "\n";
+  if (!Rewrite) {
+    llvm::outs() << "Replacements collected by the tool:\n";
+    for (auto &r : Tool.getReplacements()) {
+      llvm::outs() << r.toString() << "\n";
+    }
   }
 
   return 0;

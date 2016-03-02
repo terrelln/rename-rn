@@ -7,7 +7,6 @@
 
 #include <llvm/ADT/Optional.h>
 
-#include <iostream>
 namespace rn {
 
 // Data about the Symbol that the Matcher callbacks need
@@ -93,7 +92,6 @@ private:
     // outer matcher.
     if (AlreadyMatchedThisNode)
           return;
-    std::cerr << "Symbol is type: " << AnnotatedNode::ID() << std::endl;
     Data->USR = getUSRForDecl(Decl);
     Data->Spelling = Decl->getNameAsString();
     AlreadyMatchedThisNode = true;

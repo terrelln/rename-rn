@@ -56,6 +56,8 @@ RunResults runRenaming(std::string File, unsigned Line, unsigned Column,
   std::vector<std::string> Files;
   Files.push_back(File);
   RefactoringTool Tool(CompilationDB, Files);
+  IgnoringDiagConsumer DiagConsumer;
+  Tool.setDiagnosticConsumer(&DiagConsumer);
 
   // Find the source location
   {
