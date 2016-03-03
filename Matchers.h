@@ -40,4 +40,12 @@ AST_MATCHER_P(clang::NamespaceAliasDecl, aliasesNamespace,
   return (NamespaceAsWritten != nullptr &&
           InnerMatcher.matches(*NamespaceAsWritten, Finder, Builder));
 }
+
+AST_MATCHER_P(clang::UsingDecl, hasSingleUsingShadowDecl,
+              clang::ast_matchers::internal::Matcher<clang::UsingShadowDecl>,
+              InnerMatcher) {
+  if (Node.shadow_size() != 1)
+    return false;
+  return InnerMatcher.matches(**(Node.shadow_begin()), Finder, Builder);
+}
 }

@@ -141,7 +141,7 @@ struct UsingDeclNode {
   // TODO: Fail if more than one decl
   static const MatcherType
   matchNode(const Matcher<clang::Decl> &InnerMatcher = anything()) {
-    return usingDecl(hasAnyUsingShadowDecl(hasTargetDecl(InnerMatcher)))
+    return usingDecl(hasSingleUsingShadowDecl(hasTargetDecl(InnerMatcher)))
         .bind(ID());
   }
 };

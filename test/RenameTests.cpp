@@ -98,3 +98,30 @@ TEST(Templates, Works) {
   checkReplacements("Template.cpp", 1, "U", {19, 46});
   checkReplacements("Template.cpp", 1, "U", {88, 115});
 }
+
+TEST(UsingShadows, Ambiguous) {
+  string File = addPrefix("UsingShadows.cpp");
+  unsigned SpellingLength = 2;
+  string NewSpelling = "gn";
+  Replacements IntReplaces =
+      Replacements{Replacement{File, 19, SpellingLength, NewSpelling},
+                   // Replacement{File, 55, SpellingLength, NewSpelling},
+                   Replacement{File, 74, SpellingLength, NewSpelling}};
+  Replacements BoolReplaces =
+      Replacements{Replacement{File, 33, SpellingLength, NewSpelling},
+                   // Replacement{File, 55, SpellingLength, NewSpelling},
+                   Replacement{File, 83, SpellingLength, NewSpelling}};
+  RunResults IntExpectedResults{std::move(IntReplaces)};
+  RunResults BoolExpectedResults{std::move(BoolReplaces)};
+  RunResults AmbiguousExpectedResults;
+  AmbiguousExpectedResults.UnableToDetermineUSR = true;
+  RunResults ActualResults;
+
+  EXPECT_EQ(IntExpectedResults, runRenaming(File, 19, NewSpelling));
+  EXPECT_EQ(IntExpectedResults, runRenaming(File, 74, NewSpelling));
+
+  EXPECT_EQ(BoolExpectedResults, runRenaming(File, 33, NewSpelling));
+  EXPECT_EQ(BoolExpectedResults, runRenaming(File, 83, NewSpelling));
+
+  EXPECT_EQ(AmbiguousExpectedResults, runRenaming(File, 55, NewSpelling));
+}
