@@ -80,22 +80,7 @@ struct CXXConstructorDeclNode {
     return cxxConstructorDecl(ofClass(InnerMatcher)).bind(ID());
   }
 };
-/*
-struct TagTypeNode {
-  using NodeType = ::clang::TypeLoc;
-  using MatcherType = TypeLocMatcher;
-  static constexpr const char *ID() { return "TagType"; }
 
-  static ::clang::SourceLocation getLocation(const NodeType *Node) {
-    return Node->getBeginLoc();
-  }
-
-  static const MatcherType matchNode(const Matcher<clang::Decl> &
-InnerMatcher = anything()) { return
-loc(tagType(hasDeclaration(InnerMatcher))).bind(ID());
- }
-};
-*/
 struct NestedNameSpecifierNode {
   using NodeType = ::clang::NestedNameSpecifierLoc;
   using MatcherType = NestedNameSpecifierLocMatcher;
@@ -161,21 +146,6 @@ struct AliasedNamespaceNode {
   }
 };
 
-/*
-struct TypedefTypeNode {
-  using NodeType = ::clang::TypeLoc;
-  using MatcherType = TypeLocMatcher;
-  static constexpr const char *ID() { return "TypedefType"; }
-
-  static ::clang::SourceLocation getLocation(const NodeType *Node) {
-    return Node->getBeginLoc();
-  }
-
-  static const MatcherType matchNode(const Matcher<clang::Decl> &
-InnerMatcher = anything()) { return
-loc(typedefType(hasDeclaration(InnerMatcher))).bind(ID()); }
-};
-*/
 struct TypeWithDeclarationNode {
   using NodeType = ::clang::TypeLoc;
   using MatcherType = TypeLocMatcher;
