@@ -19,14 +19,13 @@ namespace rn {
 #define RN_ADD_ALL_MATCHERS(ADD_MATCHER)                                       \
   ADD_MATCHER(NamedDecl);                                                      \
   ADD_MATCHER(DeclRefExpr);                                                    \
-  ADD_MATCHER(TagType);                                                        \
   ADD_MATCHER(CXXConstructorDecl);                                             \
   ADD_MATCHER(UsingDirectiveDecl);                                             \
   ADD_MATCHER(UsingDecl);                                                      \
   ADD_MATCHER(AliasedNamespace);                                               \
   ADD_MATCHER(NestedNameSpecifier);                                            \
-  ADD_MATCHER(TypedefType);                                                    \
-  ; /* Just for easy copy/pasting */
+  ADD_MATCHER(TypeWithDeclaration);
+; /* Just for easy copy/pasting */
 
 using namespace ::clang::ast_matchers;
 using namespace ::clang::ast_matchers::internal;
@@ -95,7 +94,7 @@ struct CXXConstructorDeclNode {
     return cxxConstructorDecl(ofClass(InnerMatcher)).bind(ID());
   }
 };
-
+/*
 struct TagTypeNode {
   using NodeType = ::clang::TypeLoc;
   using MatcherType = TypeLocMatcher;
@@ -119,7 +118,7 @@ struct TagTypeNode {
     return loc(tagType(hasDeclaration(namedDecl(InnerMatcher)))).bind(ID());
   }
 };
-
+*/
 struct NestedNameSpecifierNode {
   using NodeType = ::clang::NestedNameSpecifierLoc;
   using MatcherType = NestedNameSpecifierLocMatcher;
@@ -232,6 +231,7 @@ struct AliasedNamespaceNode {
   }
 };
 
+/*
 struct TypedefTypeNode {
   using NodeType = ::clang::TypeLoc;
   using MatcherType = TypeLocMatcher;
@@ -254,6 +254,50 @@ struct TypedefTypeNode {
   static const MatcherType
   matchNamedDecl(const Matcher<::clang::NamedDecl> &InnerMatcher) {
     return loc(typedefType(hasDeclaration(namedDecl(InnerMatcher)))).bind(ID());
+  }
+};
+*/
+struct TypeWithDeclarationNode {
+  using NodeType = ::clang::TypeLoc;
+  using MatcherType = TypeLocMatcher;
+  static constexpr const char *ID() { return "TypeWithDeclaration"; }
+
+  static const ::clang::NamedDecl *getNamedDecl(const NodeType *Node) {
+    const auto Type = Node->getTypePtr();
+    if (Type == nullptr)
+      return nullptr;
+    if (const auto TagType = llvm::dyn_cast<clang::TagType>(Type))
+      return TagType->getDecl();
+    if (const auto TypedefType = llvm::dyn_cast<clang::TypedefType>(Type))
+      return TypedefType->getDecl();
+    if (const auto TemplateTypeParmType =
+            llvm::dyn_cast<clang::TemplateTypeParmType>(Type))
+      return TemplateTypeParmType->getDecl();
+    if (const auto TemplateTypeParmType =
+            llvm::dyn_cast<clang::TemplateTypeParmType>(Type))
+      return TemplateTypeParmType->getDecl();
+    if (const auto TemplateSpecializationType =
+            llvm::dyn_cast<clang::TemplateSpecializationType>(Type))
+      return TemplateSpecializationType->getTemplateName().getAsTemplateDecl();
+    return nullptr;
+  }
+
+  static ::clang::SourceLocation getLocation(const NodeType *Node) {
+    return Node->getBeginLoc();
+  }
+
+  static const MatcherType
+  matchNode(const Matcher<::clang::NamedDecl> &InnerMatcher = anything()) {
+    const auto DeclMatcher = hasDeclaration(namedDecl(InnerMatcher));
+    return loc(type(anyOf(tagType(DeclMatcher), typedefType(DeclMatcher),
+                          templateTypeParmType(DeclMatcher),
+                          templateSpecializationType(DeclMatcher))))
+        .bind(ID());
+  }
+
+  static const MatcherType
+  matchNamedDecl(const Matcher<::clang::NamedDecl> &InnerMatcher) {
+    return matchNode(InnerMatcher);
   }
 };
 }

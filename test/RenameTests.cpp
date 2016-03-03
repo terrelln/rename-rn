@@ -92,3 +92,9 @@ TEST(NestedNameSpecifier, Works) {
   // rename: G
   checkReplacements("NestedNameSpecifier.cpp", 1, "a", {233, 249, 317, 330});
 }
+
+TEST(Templates, Works) {
+  // Make this test better
+  checkReplacements("Template.cpp", 1, "U", {19, 46});
+  checkReplacements("Template.cpp", 1, "U", {88, 115});
+}
