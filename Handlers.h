@@ -67,7 +67,8 @@ public:
     if (Node == nullptr)
       return;
     // and its NamedDecl
-    const auto Decl = AnnotatedNode::getNamedDecl(Node);
+    const auto Decl =
+        Result.Nodes.getNodeAs<clang::NamedDecl>(declID(AnnotatedNode::ID()));
     if (Decl == nullptr)
       return;
     // See if it is at the location we are looking for
@@ -91,7 +92,7 @@ private:
     // This is a workaround for RecordDecl's with definitions, since we want the
     // outer matcher.
     if (AlreadyMatchedThisNode)
-          return;
+      return;
     Data->USR = getUSRForDecl(Decl);
     Data->Spelling = Decl->getNameAsString();
     AlreadyMatchedThisNode = true;
