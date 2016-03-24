@@ -19,7 +19,8 @@ namespace rn {
   ::rn::RenameHandler<::rn::Type##Node> Type##Handler(Replace, &Data);         \
   Finder.addMatcher(                                                           \
       ::rn::Type##Node::matchNode(                                             \
-          ::clang::ast_matchers::namedDecl(::rn::sameUSR(Data.USR))),          \
+          ::clang::ast_matchers::namedDecl(::rn::sameUSR(Data.USR))            \
+              .bind(::rn::declID(::rn::Type##Node::ID()))),                    \
       &Type##Handler)
 
 #define RN_ADD_ALL_MATCHERS(ADD_MATCHER)                                       \
@@ -30,13 +31,23 @@ namespace rn {
   ADD_MATCHER(UsingDecl);                                                      \
   ADD_MATCHER(AliasedNamespace);                                               \
   ADD_MATCHER(NestedNameSpecifier);                                            \
-  ADD_MATCHER(TypeWithDeclaration);
-; /* Just for easy copy/pasting */
+  ADD_MATCHER(TypeWithDeclaration);                                            \
+  ADD_MATCHER(MemberExpr);                                                     \
+  ADD_MATCHER(ParmVarDecl);                                                    \
+  ; /* Just for easy copy/pasting */
 
 using namespace ::clang::ast_matchers;
 using namespace ::clang::ast_matchers::internal;
 
-struct NamedDeclNode {
+struct Node {
+  template <typename Node>
+  static ::llvm::StringRef getSpelling(const Node *,
+                                       const ::clang::NamedDecl *Decl) {
+    return Decl->getNameAsString();
+  }
+};
+
+struct NamedDeclNode : Node {
   using NodeType = ::clang::NamedDecl;
   using MatcherType = DeclarationMatcher;
   static constexpr const char *ID() { return "NamedDecl"; }
@@ -51,7 +62,7 @@ struct NamedDeclNode {
   }
 };
 
-struct DeclRefExprNode {
+struct DeclRefExprNode : Node {
   using NodeType = ::clang::DeclRefExpr;
   using MatcherType = StatementMatcher;
   static constexpr const char *ID() { return "DeclRefExpr"; }
@@ -66,7 +77,7 @@ struct DeclRefExprNode {
   }
 };
 
-struct CXXConstructorDeclNode {
+struct CXXConstructorDeclNode : Node {
   using NodeType = ::clang::CXXConstructorDecl;
   using MatcherType = DeclarationMatcher;
   static constexpr const char *ID() { return "CXXConstructorDecl"; }
@@ -81,7 +92,7 @@ struct CXXConstructorDeclNode {
   }
 };
 
-struct NestedNameSpecifierNode {
+struct NestedNameSpecifierNode : Node {
   using NodeType = ::clang::NestedNameSpecifierLoc;
   using MatcherType = NestedNameSpecifierLocMatcher;
   static constexpr const char *ID() { return "NestedNameSpecifier"; }
@@ -92,14 +103,14 @@ struct NestedNameSpecifierNode {
 
   static const MatcherType
   matchNode(const Matcher<clang::Decl> &InnerMatcher = anything()) {
-    return loc(nestedNameSpecifier(anyOf(specifiesType(tagType(hasDeclaration(
-                                             InnerMatcher))),
-                                         specifiesNamespace(InnerMatcher))))
+    return loc(nestedNameSpecifier(
+                   anyOf(specifiesType(tagType(hasDeclaration(InnerMatcher))),
+                         specifiesNamespace(InnerMatcher))))
         .bind(ID());
   }
 };
 
-struct UsingDirectiveDeclNode {
+struct UsingDirectiveDeclNode : Node {
   using NodeType = ::clang::UsingDirectiveDecl;
   using MatcherType = DeclarationMatcher;
   static constexpr const char *ID() { return "UsingDirectiveDecl"; }
@@ -114,7 +125,7 @@ struct UsingDirectiveDeclNode {
   }
 };
 
-struct UsingDeclNode {
+struct UsingDeclNode : Node {
   using NodeType = ::clang::UsingDecl;
   using MatcherType = DeclarationMatcher;
   static constexpr const char *ID() { return "UsingDecl"; }
@@ -131,7 +142,7 @@ struct UsingDeclNode {
   }
 };
 
-struct AliasedNamespaceNode {
+struct AliasedNamespaceNode : Node {
   using NodeType = ::clang::NamespaceAliasDecl;
   using MatcherType = DeclarationMatcher;
   static constexpr const char *ID() { return "AliasedNamespace"; }
@@ -146,7 +157,7 @@ struct AliasedNamespaceNode {
   }
 };
 
-struct TypeWithDeclarationNode {
+struct TypeWithDeclarationNode : Node {
   using NodeType = ::clang::TypeLoc;
   using MatcherType = TypeLocMatcher;
   static constexpr const char *ID() { return "TypeWithDeclaration"; }
@@ -162,6 +173,41 @@ struct TypeWithDeclarationNode {
                           templateTypeParmType(DeclMatcher),
                           templateSpecializationType(DeclMatcher))))
         .bind(ID());
+  }
+};
+
+struct MemberExprNode : Node {
+  using NodeType = ::clang::MemberExpr;
+  using MatcherType = StatementMatcher;
+  static constexpr const char *ID() { return "MemberExpr"; }
+
+  static ::clang::SourceLocation getLocation(const NodeType *Node) {
+    return Node->getMemberLoc();
+  }
+
+  static const MatcherType
+  matchNode(const Matcher<clang::Decl> &InnerMatcher = anything()) {
+    return memberExpr(hasDeclaration(InnerMatcher)).bind(ID());
+  }
+};
+
+struct ParmVarDeclNode : Node {
+  using NodeType = ::clang::ParmVarDecl;
+  using MatcherType = DeclarationMatcher;
+  static constexpr const char *ID() { return "ParmVarDecl"; }
+
+  static ::llvm::StringRef getSpelling(const NodeType *Node,
+                                       const ::clang::NamedDecl *) {
+    return Node->getNameAsString();
+  }
+
+  static ::clang::SourceLocation getLocation(const NodeType *Node) {
+    return Node->getLocation();
+  }
+
+  static const MatcherType
+  matchNode(const Matcher<clang::Decl> &InnerMatcher = anything()) {
+    return parmVarDecl(bestParmVarDecl(InnerMatcher)).bind(ID());
   }
 };
 }

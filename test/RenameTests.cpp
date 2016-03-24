@@ -125,3 +125,33 @@ TEST(UsingShadows, Ambiguous) {
 
   EXPECT_EQ(AmbiguousExpectedResults, runRenaming(File, 55, NewSpelling));
 }
+
+TEST(Function, Works) {
+  // rename: Z
+  checkReplacements("Functions.cpp", 1, "X", {7, 13, 40, 105, 111, 142, 314});
+  // rename: Z::foo
+  checkReplacements("Functions.cpp", 3, "f", {24, 130, 166, 186, 317});
+  // rename: foo(bool, bool, bool)
+  checkReplacements("Functions.cpp", 3, "f", {53, 174});
+  // rename: foo(int, int, Z)
+  checkReplacements("Functions.cpp", 3, "f", {87});
+  // rename: fn
+  checkReplacements("Functions.cpp", 3, "f", {224, 263, 295});
+  // rename: fn::x
+  checkReplacements("Functions.cpp", 3, "f", {231, 270, 275});
+}
+
+TEST(ParmVarDecl, Works) {
+  // rename foo::x (int)
+  checkReplacements("ParmVarDecls.cpp", 1, "bar", {12, 39, 115, 139});
+  // rename foo::x (double)
+  checkReplacements("ParmVarDecls.cpp", 1, "bar", {74, 98});
+  // rename foo::y (int)
+  checkReplacements("ParmVarDecls.cpp", 1, "bar", {64});
+  // rename foo::y (double)
+  checkReplacements("ParmVarDecls.cpp", 1, "bar", {22, 125});
+  // rename (other) foo::x (double)
+  checkReplacements("ParmVarDecls.cpp", 1, "bar", {159});
+  // rename (other) foo::y (double)
+  checkReplacements("ParmVarDecls.cpp", 1, "bar", {169});
+}

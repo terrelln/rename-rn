@@ -35,13 +35,15 @@ public:
   void
   run(const ::clang::ast_matchers::MatchFinder::MatchResult &Result) override {
     // Rename the Node if there is a match
-    if (const auto Node =
-            Result.Nodes.getNodeAs<typename AnnotatedNode::NodeType>(
-                AnnotatedNode::ID())) {
-      Replace->insert(::clang::tooling::Replacement(
-          *(Result.SourceManager), AnnotatedNode::getLocation(Node),
-          Data->Spelling.size(), Data->NewSpelling));
-    }
+    const auto Node = Result.Nodes.getNodeAs<typename AnnotatedNode::NodeType>(
+        AnnotatedNode::ID());
+    const auto Decl =
+        Result.Nodes.getNodeAs<::clang::NamedDecl>(declID(AnnotatedNode::ID()));
+    if (Node == nullptr || Decl == nullptr)
+      return;
+    Replace->insert(::clang::tooling::Replacement(
+        *(Result.SourceManager), AnnotatedNode::getLocation(Node),
+        AnnotatedNode::getSpelling(Node, Decl).size(), Data->NewSpelling));
   }
 
 private:

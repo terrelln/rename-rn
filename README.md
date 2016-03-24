@@ -9,6 +9,10 @@ Editor plugins to come.
 * Macros
 * Using shadows / function overloads
 
+## Todos
+
+* Warn for params w/ different names
+
 ## Command Line
 
 The command line args need to be redone.
