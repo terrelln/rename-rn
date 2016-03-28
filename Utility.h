@@ -9,10 +9,10 @@
 
 namespace rn {
 
-std::string declID(std::string ID) { return ID + "Decl"; }
+static inline std::string declID(std::string ID) { return ID + "Decl"; }
 
 // Get the USR (a globally unique string) for a NamedDecl
-std::string getUSRForDecl(const clang::NamedDecl *Decl) {
+static inline std::string getUSRForDecl(const clang::NamedDecl *Decl) {
   llvm::SmallVector<char, 128> Buf;
 
   const auto *CanonicalDecl = Decl->getCanonicalDecl();

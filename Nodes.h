@@ -192,6 +192,10 @@ struct MemberExprNode : Node {
 };
 
 struct ParmVarDeclNode : Node {
+  enum class Options { One, All, Add };
+
+  static Options RenameOpt;
+
   using NodeType = ::clang::ParmVarDecl;
   using MatcherType = DeclarationMatcher;
   static constexpr const char *ID() { return "ParmVarDecl"; }
@@ -207,7 +211,14 @@ struct ParmVarDeclNode : Node {
 
   static const MatcherType
   matchNode(const Matcher<clang::Decl> &InnerMatcher = anything()) {
-    return parmVarDecl(bestParmVarDecl(InnerMatcher)).bind(ID());
+    switch (RenameOpt) {
+    case Options::One:
+      return parmVarDecl(bestParmVarDecl(InnerMatcher)).bind(ID());
+    case Options::All:
+      return parmVarDecl(bestParmVarDecl(InnerMatcher)).bind(ID());
+    case Options::Add:
+      return parmVarDecl(bestParmVarDecl(InnerMatcher)).bind(ID());
+    };
   }
 };
 }

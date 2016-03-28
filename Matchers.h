@@ -79,34 +79,39 @@ AST_MATCHER_P(clang::ParmVarDecl, bestParmVarDecl,
     return false;
   const auto *Function = llvm::dyn_cast_or_null<clang::FunctionDecl>(
       Node.getParentFunctionOrMethod());
-  if (Function == nullptr) 
+  if (Function == nullptr)
     return InnerMatcher.matches(Node, Finder, Builder);
 
-
-  // If the function is defined w/ named parameter, this is the best
-  const clang::FunctionDecl *FunctionDef = nullptr;
-  Function->hasBody(FunctionDef);
-  if (FunctionDef != nullptr) {
-    if (const clang::ParmVarDecl *OtherDecl =
-            FunctionDef->getParamDecl(Node.getFunctionScopeIndex())) {
-      if (OtherDecl->getNameAsString() == Name)
-        return InnerMatcher.matches(*OtherDecl, Finder, Builder);
-    }
-  }
-
+  const clang::ParmVarDecl *BestDecl = nullptr;
   // Otherwise get the first function decl w/ named parameter
   // Note: Can't use Function->redecls(), since order differs depending
   // on which node you call it on.
   const auto *Redecl = Function->getMostRecentDecl();
   while (Redecl != nullptr) {
-  if (const clang::ParmVarDecl *OtherDecl =
-          Redecl->getParamDecl(Node.getFunctionScopeIndex())) {
-    if (OtherDecl->getNameAsString() == Name)
-      return InnerMatcher.matches(*OtherDecl, Finder, Builder);
+    if (Redecl->isFunctionTemplateSpecialization()) {
+      std::cout << "a" << std::endl;
+      Redecl = Redecl->getPreviousDecl();
+      continue;
+    }
+    if (const clang::ParmVarDecl *OtherDecl =
+            Redecl->getParamDecl(Node.getFunctionScopeIndex())) {
+      if (OtherDecl->getNameAsString() == Name) {
+        if (BestDecl == nullptr) {
+          BestDecl = OtherDecl;
+        } else if (Redecl->doesThisDeclarationHaveABody()) {
+          BestDecl = OtherDecl;
+          break;
+        }
+      }
+    }
     Redecl = Redecl->getPreviousDecl();
   }
-}
 
-return false;
+  if (BestDecl == nullptr) {
+    std::cout << "b" << std::endl;
+    return false;
+  }
+
+  return InnerMatcher.matches(*BestDecl, Finder, Builder);
 }
 }

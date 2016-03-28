@@ -16,11 +16,17 @@ CXXFLAGS:=-std=c++11 -g
 
 all: rn test
 
-rn: Rename.cpp.o
-	$(CXX) `$(BUILD)/bin/llvm-config --ldflags` $(CXXFLAGS) $(DEFINES) -o rn Rename.cpp.o `$(BUILD)/bin/llvm-config --system-libs --libs` $(LIBPATHS) $(LIBS) $(INCS)
+rn: Rename.cpp.o Nodes.cpp.o NodeOptions.cpp.o
+	$(CXX) `$(BUILD)/bin/llvm-config --ldflags` $(CXXFLAGS) $(DEFINES) -o rn Rename.cpp.o Nodes.cpp.o NodeOptions.cpp.o `$(BUILD)/bin/llvm-config --system-libs --libs` $(LIBPATHS) $(LIBS) $(INCS)
 
-Rename.cpp.o: Rename.cpp Handlers.h Matchers.h Nodes.h Utility.h
+Rename.cpp.o: Rename.cpp Handlers.h Matchers.h Nodes.h Utility.h Options.h
 	$(CXX) $(CXXFLAGS) `$(BUILD)/bin/llvm-config --cxxflags` $(INCS) -c -o Rename.cpp.o Rename.cpp
+
+Nodes.cpp.o: Nodes.cpp Nodes.h Handlers.h Matchers.h Utility.h
+	$(CXX) $(CXXFLAGS) `$(BUILD)/bin/llvm-config --cxxflags` $(INCS) -c -o Nodes.cpp.o Nodes.cpp
+
+NodeOptions.cpp.o: NodeOptions.cpp Nodes.h Options.h
+	$(CXX) $(CXXFLAGS) `$(BUILD)/bin/llvm-config --cxxflags` $(INCS) -c -o NodeOptions.cpp.o NodeOptions.cpp
 
 test/RenameTestHarness.cpp.o: test/RenameTestHarness.cpp test/RenameTestHarness.h Handlers.h Matchers.h Nodes.h Utility.h
 	$(CXX) $(CXXFLAGS) `$(BUILD)/bin/llvm-config --cxxflags` $(INCS) -c -o test/RenameTestHarness.cpp.o test/RenameTestHarness.cpp

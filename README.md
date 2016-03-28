@@ -8,6 +8,7 @@ Editor plugins to come.
 * Typedefs in templates
 * Macros
 * Using shadows / function overloads
+* Explicit template specializtions
 
 ## Todos
 

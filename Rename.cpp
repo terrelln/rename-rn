@@ -1,6 +1,7 @@
 #include "Handlers.h"
 #include "Matchers.h"
 #include "Nodes.h"
+#include "Options.h"
 
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/Tooling/CommonOptionsParser.h>
@@ -19,36 +20,38 @@ using clang::ast_matchers::MatchFinder;
 using llvm::errs;
 using llvm::outs;
 
-// Options
-llvm::cl::OptionCategory RenameCategory("rn options");
-
-static llvm::cl::opt<std::string>
-    NewSpelling("new-name",
-                llvm::cl::desc("The new name to change the symbol to."),
-                llvm::cl::cat(RenameCategory), llvm::cl::Required);
-
-static llvm::cl::opt<unsigned>
-    Line("line", llvm::cl::desc("The line the symbol is located on."),
-         llvm::cl::cat(RenameCategory), llvm::cl::Required);
+namespace rn {
+llvm::cl::OptionCategory RenameCategory{"rn options"};
+// Command line options
+static llvm::cl::opt<std::string> NewSpelling{
+    "new-name", llvm::cl::desc("The new name to change the symbol to."),
+    llvm::cl::cat(RenameCategory), llvm::cl::Required};
 
 static llvm::cl::opt<unsigned>
-    Column("column", llvm::cl::desc("The column the symbol is located in."),
-           llvm::cl::cat(RenameCategory), llvm::cl::Required);
+    Line{"line", llvm::cl::desc("The line the symbol is located on."),
+         llvm::cl::cat(RenameCategory), llvm::cl::Required};
+
+static llvm::cl::opt<unsigned>
+    Column{"column", llvm::cl::desc("The column the symbol is located in."),
+           llvm::cl::cat(RenameCategory), llvm::cl::Required};
 
 static llvm::cl::opt<bool>
-    Rewrite("rewrite", llvm::cl::desc("Should the files be rewritten."),
-            llvm::cl::cat(RenameCategory), llvm::cl::Required);
+    Rewrite{"rewrite", llvm::cl::desc("Should the files be rewritten."),
+            llvm::cl::cat(RenameCategory), llvm::cl::Required};
 
-const std::string CLANG_RENAME_VERSION = "0.0.1";
+// The tool version to display
+const std::string RENAME_RN_VERSION = "0.0.1";
 
-static void PrintVersion() {
-  outs() << "clang-rename version " << CLANG_RENAME_VERSION << "\n";
+// The function that prints the version
+inline void PrintVersion() {
+  llvm::outs() << "clang-rename version " << RENAME_RN_VERSION << "\n";
 }
 
 const char RenameUsage[] = "A tool to rename symbols in C/C++ code.\n\
                             rn renames every occurrence of a symbol found at\
                            < offset >\
                            in\n<source>.The results are written to stdout.\n ";
+}
 
 int main(int argc, const char **argv) {
   using namespace rn;
@@ -59,14 +62,14 @@ int main(int argc, const char **argv) {
   if (NewSpelling.empty()) {
     errs() << "rn: no new name provided.\n\n";
     llvm::cl::PrintHelpMessage();
-    exit(1);
+    return 1;
   }
 
   auto Files = OP.getSourcePathList();
   if (Files.empty()) {
     errs() << "rn: no files provided.\n\n";
     llvm::cl::PrintHelpMessage();
-    exit(1);
+    return 1;
   }
 
   SymbolData Data(Files.front(), Line, Column, NewSpelling);
@@ -82,12 +85,12 @@ int main(int argc, const char **argv) {
     if (Tool.run(newFrontendActionFactory(&Finder).get())) {
       errs() << "Failed to find symbol at location: " << Files.front() << ":"
              << Line << ":" << Column << ".\n";
-      exit(1);
+      return 1;
     }
   }
   if (Data.USR.empty()) {
     errs() << "Unable to determine USR.\n";
-    exit(1);
+    return 1;
   }
 
   // Find all references and rename them
