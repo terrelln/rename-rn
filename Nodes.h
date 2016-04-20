@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Matchers.h"
-#include "Utility.h"
+#include "Rename/Matchers.h"
+#include "Rename/Utility.h"
 
 #include <clang/AST/AST.h>
 #include <clang/ASTMatchers/ASTMatchers.h>

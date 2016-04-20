@@ -1,7 +1,6 @@
 #pragma once
 
-#include <iostream>
-#include "utility.h"
+#include "Rename/utility.h"
 
 #include <clang/AST/AST.h>
 #include <clang/ASTMatchers/ASTMatchers.h>
@@ -89,7 +88,6 @@ AST_MATCHER_P(clang::ParmVarDecl, bestParmVarDecl,
   const auto *Redecl = Function->getMostRecentDecl();
   while (Redecl != nullptr) {
     if (Redecl->isFunctionTemplateSpecialization()) {
-      std::cout << "a" << std::endl;
       Redecl = Redecl->getPreviousDecl();
       continue;
     }
@@ -108,7 +106,6 @@ AST_MATCHER_P(clang::ParmVarDecl, bestParmVarDecl,
   }
 
   if (BestDecl == nullptr) {
-    std::cout << "b" << std::endl;
     return false;
   }
 

@@ -1,7 +1,7 @@
-#include "Handlers.h"
-#include "Matchers.h"
-#include "Nodes.h"
-#include "Options.h"
+#include <Rename/Handlers.h>
+#include <Rename/Matchers.h>
+#include <Rename/Nodes.h>
+#include <Rename/Options.h>
 
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/Tooling/CommonOptionsParser.h>

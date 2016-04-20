@@ -1,0 +1,45 @@
+import os
+def subdir_glob(glob_specs):
+  """
+  Given a list of tuples, the form of (relative-sub-directory, glob-pattern),
+  return a dict of sub-directory relative paths to full paths.  Useful for
+  defining header maps for C/C++ libraries which should be relative the given
+  sub-directory.
+  """
+
+  results = {}
+
+  for dirpath, glob_pattern in glob_specs:
+    files = glob([os.path.join(dirpath, glob_pattern)])
+    for f in files:
+      if dirpath:
+        results[f[len(dirpath) + 1:]] = f
+      else:
+        results[f] = f
+
+  return results
+
+cxx_library(
+  name = 'googletest',
+  srcs = glob(['googletest/googletest/src/**/*.cc'], excludes=['googletest/googletest/src/gtest-all.cc']),
+  # Not all compilers support <tr1/tuple>, so have gtest use it's
+  # internal implementation.
+  exported_preprocessor_flags = [
+    '-DGTEST_USE_OWN_TR1_TUPLE=1',
+  ],
+  compiler_flags = [
+    '-iquote=.'
+  ],
+  header_namespace = '',
+  exported_headers = subdir_glob([
+    ('googletest/googletest', 'src/**/*.h'),
+    ('googletest/googletest/include', '**/*.h'),
+  ]),
+  platform_linker_flags = [
+    ('android', []),
+    ('', ['-lpthread']),
+  ],
+  visibility = [
+    'PUBLIC',
+  ],
+)

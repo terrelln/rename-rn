@@ -1,8 +1,8 @@
 #include "RenameTestHarness.h"
 
-#include "../Handlers.h"
-#include "../Matchers.h"
-#include "../Nodes.h"
+#include <Rename/Handlers.h>
+//#include <Rename/Matchers.h>
+#include <Rename/Nodes.h>
 
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/Basic/Diagnostic.h>

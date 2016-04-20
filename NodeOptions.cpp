@@ -1,5 +1,5 @@
-#include "Nodes.h"
-#include "Options.h"
+#include "Rename/Nodes.h"
+#include "Rename/Options.h"
 
 #include <clang/Tooling/CommonOptionsParser.h>
 

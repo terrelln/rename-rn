@@ -6,3 +6,5 @@ rn
 *.swp
 test/test
 *.a
+.buckd/
+buck-out/

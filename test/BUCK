@@ -1,0 +1,9 @@
+cxx_test(
+  name = 'rn-tests',
+  srcs = [
+    'RenameTestHarness.cpp',
+    'RenameTests.cpp'
+  ],
+  headers = ['RenameTestHarness.h'],
+  deps = [ '//:Rename' ]
+)
